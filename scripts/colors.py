@@ -1,4 +1,35 @@
-"""Shared terminal color and formatting utilities for RSI framework."""
+"""Shared terminal color and formatting utilities for RSI framework.
+
+Windows-safe: detects cp1252/ASCII terminals and falls back to ASCII
+symbols. No Unicode crashes on Windows cmd/PowerShell.
+"""
+
+import os
+import sys
+
+
+def _supports_unicode() -> bool:
+    """Check if the terminal supports Unicode output."""
+    try:
+        encoding = sys.stdout.encoding or ""
+        if encoding.lower() in ("utf-8", "utf8"):
+            return True
+        # Check if we can encode a test character
+        "\u2713".encode(encoding)
+        return True
+    except (UnicodeEncodeError, LookupError, AttributeError):
+        return False
+
+
+_UNICODE = _supports_unicode()
+
+# Safe symbols — Unicode with ASCII fallback
+CHECK = "\u2713" if _UNICODE else "+"     # ✓ or +
+CROSS = "\u2717" if _UNICODE else "x"     # ✗ or x
+WARN = "\u26a0" if _UNICODE else "!"      # ⚠ or !
+ARROW = "\u2192" if _UNICODE else "->"    # → or ->
+BLOCK = "#" if not _UNICODE else "\u2588" # █ or #
+EMPTY = "." if not _UNICODE else "\u2591" # ░ or .
 
 
 def green(msg: str) -> str:
@@ -29,6 +60,6 @@ def header(title: str, width: int = 60) -> str:
     return f"{'=' * width}\n{title}\n{'=' * width}"
 
 
-def bar(value: int, max_width: int = 20, filled: str = "\u2588", empty: str = "\u2591") -> str:
+def bar(value: int, max_width: int = 20) -> str:
     clamped = max(0, min(value, max_width))
-    return filled * clamped + empty * (max_width - clamped)
+    return BLOCK * clamped + EMPTY * (max_width - clamped)

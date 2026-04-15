@@ -112,7 +112,7 @@ def cmd_status(args) -> None:
     if recorded_version == "none":
         print(f"\n  {yellow('WARNING:')} Run --adopt to record your framework version.")
     elif local_version != recorded_version and recorded_version != "none":
-        print(f"\n  {cyan('INFO:')} Update available: v{recorded_version} → v{local_version}")
+        print(f"\n  {cyan('INFO:')} Update available: v{recorded_version} -> v{local_version}")
         print(f"  Run --pull to update.")
     else:
         print(f"\n  {green('OK:')} Framework is up to date.")
@@ -137,7 +137,7 @@ def cmd_check(args) -> None:
         print(f"{green('UP TO DATE')} — v{local_version}")
         sys.exit(0)
     else:
-        print(f"{yellow('UPDATE AVAILABLE')} — v{recorded_version} → v{local_version}")
+        print(f"{yellow('UPDATE AVAILABLE')} — v{recorded_version} -> v{local_version}")
         print("Run --pull to update.")
         sys.exit(1)
 
@@ -181,7 +181,7 @@ def cmd_pull(args) -> None:
     print(f"\n  To verify the update:")
     print(f"    python3 scripts/self_verify.py --changed-only")
     print(f"\n  To record this update in memory:")
-    print(f"    python3 scripts/post_implementation.py --task 'Updated RSI framework' --succeeded 'Pulled v{old_version} → v{old_version}' --proof-wrong 'If backup is corrupted, framework files may be unrecoverable'")
+    print(f"    python3 scripts/post_implementation.py --task 'Updated RSI framework' --succeeded 'Pulled v{old_version} -> v{old_version}' --proof-wrong 'If backup is corrupted, framework files may be unrecoverable'")
 
 
 def _report_changes(new_version: str) -> list[str]:

@@ -58,13 +58,13 @@ def install_git_hooks(project_root: Path) -> bool:
             dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
             installed.append(hook_file.name)
 
-    print(f"  ✓ Git hooks installed to {template_hooks}")
+    print(f"  + Git hooks installed to {template_hooks}")
     for name in sorted(installed):
         print(f"    - {name}")
 
     test_hook = template_hooks / "pre-commit"
     if not (test_hook.stat().st_mode & stat.S_IXUSR):
-        print(f"  ✗ pre-commit is NOT executable")
+        print(f"  x pre-commit is NOT executable")
         return False
 
     return True
@@ -81,7 +81,7 @@ def install_claude_hooks(project_root: Path) -> None:
             adapter = ClaudeCodeAdapter(project_root)
             created = adapter.install()
             for f in created:
-                print(f"  ✓ {f}")
+                print(f"  + {f}")
         except ImportError:
             # Fallback: write settings directly
             claude_settings.parent.mkdir(parents=True, exist_ok=True)
@@ -99,9 +99,9 @@ def install_claude_hooks(project_root: Path) -> None:
                 }
             }
             claude_settings.write_text(json.dumps(settings, indent=2) + "\n")
-            print(f"  ✓ Claude Code hooks installed at {claude_settings}")
+            print(f"  + Claude Code hooks installed at {claude_settings}")
     else:
-        print(f"  ✓ Claude Code hooks already exist at {claude_settings}")
+        print(f"  + Claude Code hooks already exist at {claude_settings}")
         print(f"    (To update, delete .claude/settings.json and re-run setup)")
 
 
@@ -113,12 +113,12 @@ def install_opencode_adapter(project_root: Path) -> None:
         adapter = MiniMaxAdapter(project_root)
         created = adapter.install()
         for f in created:
-            print(f"  ✓ {f}")
+            print(f"  + {f}")
         wrapper = project_root / "opencode_wrapper.sh"
         if wrapper.exists():
             wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     except ImportError:
-        print(f"  ✗ Adapter module not found. Ensure adapters/ directory exists.")
+        print(f"  x Adapter module not found. Ensure adapters/ directory exists.")
 
 
 def install_shell_integrator(project_root: Path) -> None:
@@ -129,12 +129,12 @@ def install_shell_integrator(project_root: Path) -> None:
         adapter = GenericAdapter(project_root)
         created = adapter.install()
         for f in created:
-            print(f"  ✓ {f}")
+            print(f"  + {f}")
         wrapper = project_root / "opencode_wrapper.sh"
         if wrapper.exists():
             wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     except ImportError:
-        print(f"  ✗ Adapter module not found. Ensure adapters/ directory exists.")
+        print(f"  x Adapter module not found. Ensure adapters/ directory exists.")
 
 
 def init_memory(project_root: Path) -> None:
@@ -143,13 +143,13 @@ def init_memory(project_root: Path) -> None:
     template_dir = project_root / "MEMORY_TEMPLATE"
 
     if memory_dir.exists():
-        print(f"  ✓ .memory/ already exists")
+        print(f"  + .memory/ already exists")
     elif template_dir.exists():
-        print(f"  ✓ Initializing .memory/ from MEMORY_TEMPLATE...")
+        print(f"  + Initializing .memory/ from MEMORY_TEMPLATE...")
         shutil.copytree(template_dir, memory_dir)
         print(f"    .memory/ created")
     else:
-        print(f"  ⚠ MEMORY_TEMPLATE not found, skipping .memory/ init")
+        print(f"  ! MEMORY_TEMPLATE not found, skipping .memory/ init")
 
 
 def select_model_interactive() -> list:
@@ -273,7 +273,7 @@ def main():
 
     print("")
     print("=" * 40)
-    print("✓ Setup complete.")
+    print("+ Setup complete.")
     print("")
 
     if "claude" in models_to_install:

@@ -283,19 +283,19 @@ def cmd_check(args, *, fresh: bool = False) -> None:
 def cmd_require_session() -> None:
     """Block if no active session marker exists or session has expired."""
     if _is_session_expired():
-        print(f"{red('✗ No active RSI session — commit blocked')}")
+        print(f"{red('x No active RSI session — commit blocked')}")
         print(f"")
         print(f"Run 'python3 scripts/preflight_check.py --start' to start a session.")
         print(f"Session markers expire after {RSI_SESSION_TTL_HOURS}h (configurable via RSI_SESSION_TTL_HOURS env var).")
         sys.exit(1)
-    print(f"{green('✓ RSI session active')}")
+    print(f"{green('+ RSI session active')}")
     sys.exit(0)
 
 
 def cmd_start() -> None:
     """Start a new RSI session. Creates or refreshes the session marker."""
     _touch_session()
-    print(f"{green('✓ RSI session started')}")
+    print(f"{green('+ RSI session started')}")
     print(f"Session expires in {RSI_SESSION_TTL_HOURS}h (configurable via RSI_SESSION_TTL_HOURS env var).")
 
 

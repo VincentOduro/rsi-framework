@@ -320,7 +320,7 @@ COMMANDS = {
     "root-cause": (cmd_root_cause, "5-Whys root cause analysis"),
     "metrics": (cmd_metrics, "Metrics engine"),
     "delegate": (cmd_delegate, "Send task to worker model (MiniMax-M2.7)"),
-    "auto": (cmd_auto, "Auto-route: decompose → delegate → review → apply"),
+    "auto": (cmd_auto, "Auto-route: decompose -> delegate -> review -> apply"),
     "review-queue": (cmd_review_queue, "Manage review queue (Jidoka)"),
     "classify": (cmd_classify, "Check file sensitivity level"),
     "adapt": (cmd_adapt, "Generate platform-specific enforcement files"),

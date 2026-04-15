@@ -6,9 +6,9 @@ Reads .rsi/architecture.yaml and matches the filepath against glob patterns.
 First match wins. If no pattern matches, defaults to "guarded" (safe default).
 
 Usage:
-    python3 scripts/classify_file.py src/core/api.py       # → guarded
-    python3 scripts/classify_file.py CLAUDE.md              # → constitution
-    python3 scripts/classify_file.py tests/test_foo.py      # → open
+    python3 scripts/classify_file.py src/core/api.py       # -> guarded
+    python3 scripts/classify_file.py CLAUDE.md              # -> constitution
+    python3 scripts/classify_file.py tests/test_foo.py      # -> open
     python3 scripts/classify_file.py --batch file1 file2    # Multiple files
     python3 scripts/classify_file.py --json src/api.py      # JSON output
 """

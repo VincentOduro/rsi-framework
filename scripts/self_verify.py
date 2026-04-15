@@ -256,9 +256,9 @@ def yellow(msg: str) -> str:
 def check(label: str, cond: bool, detail: str = "") -> bool:
     """Print a check result. Returns True if passed."""
     if cond:
-        print(f"  {green('✓')} {label}")
+        print(f"  {green('+')} {label}")
     else:
-        print(f"  {red('✗')} {label}")
+        print(f"  {red('x')} {label}")
         if detail:
             print(f"        {detail}")
     return cond
@@ -391,13 +391,13 @@ def run_tests() -> bool:
         timeout=120,
     )
     if result.returncode == 0:
-        print(f"  {green('✓')} All tests passed")
+        print(f"  {green('+')} All tests passed")
         # Print summary line
         for line in result.stdout.splitlines():
             if "passed" in line and "failed" not in line:
                 print(f"        {line.strip()}")
     else:
-        print(f"  {red('✗')} Tests failed")
+        print(f"  {red('x')} Tests failed")
         for line in result.stderr.splitlines()[-5:]:
             print(f"        {line}")
     return result.returncode == 0
@@ -442,7 +442,7 @@ def verify_file(file_path: Path, sanity_check_func=None) -> bool:
     if file_path.suffix == ".py":
         side_effects = scan_side_effects(file_path)
         if side_effects:
-            print(f"  {yellow('⚠')} Side-effect scan:")
+            print(f"  {yellow('!')} Side-effect scan:")
             for se in side_effects[:5]:
                 print(se)
 

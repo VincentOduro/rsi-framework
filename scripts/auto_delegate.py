@@ -333,7 +333,7 @@ def execute_overlord_task(subtask: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Core loop: decompose → route → execute → review → consolidate
+# Core loop: decompose -> route -> execute -> review -> consolidate
 # ---------------------------------------------------------------------------
 
 def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: bool = True) -> dict:
@@ -341,8 +341,8 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
 
     1. Claude decomposes the task
     2. For each subtask:
-       - overlord_only → Claude handles directly
-       - delegatable → MiniMax implements → Claude reviews → accept/reject/revise
+       - overlord_only -> Claude handles directly
+       - delegatable -> MiniMax implements -> Claude reviews -> accept/reject/revise
     3. Apply accepted changes (unless dry_run)
     4. Record metrics
     5. Return consolidated results
@@ -393,7 +393,7 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
             all_changes.update(result["changes"])
         if result.get("recommendations"):
             all_recommendations.extend(result["recommendations"])
-        log(f"    → Completed")
+        log(f"    -> Completed")
         if result.get("analysis"):
             # Print first 200 chars of analysis
             log(f"    Analysis: {result['analysis'][:200]}...")
@@ -432,18 +432,18 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
         task_file = TASKS_DIR / f"{task_id}.json"
         task_file.write_text(json.dumps(task_spec, indent=2))
 
-        # Retry loop: worker implements → overlord reviews
+        # Retry loop: worker implements -> overlord reviews
         accepted = False
         revision_feedback = ""
         for attempt in range(1, MAX_RETRIES + 1):
             log(f"    Attempt {attempt}/{MAX_RETRIES}")
 
             # Call worker
-            log(f"    → Sending to MiniMax...")
+            log(f"    -> Sending to MiniMax...")
             worker_result = call_worker(task_spec, revision_feedback)
 
             if worker_result.get("error"):
-                log(f"    → Worker error: {worker_result['error']}")
+                log(f"    -> Worker error: {worker_result['error']}")
                 if attempt < MAX_RETRIES:
                     revision_feedback = f"Error: {worker_result['error']}. Try again."
                     continue
@@ -461,10 +461,10 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
             log_delegation(task_spec, worker_result, "PENDING")
 
             # Overlord reviews
-            log(f"    → Overlord reviewing...")
+            log(f"    -> Overlord reviewing...")
             review = review_worker_output(subtask, worker_result)
             decision = review.get("decision", "accept")
-            log(f"    → Decision: {decision.upper()} (proof-wrong quality: {review.get('proof_wrong_quality', '?')}/100)")
+            log(f"    -> Decision: {decision.upper()} (proof-wrong quality: {review.get('proof_wrong_quality', '?')}/100)")
 
             if decision == "accept":
                 accepted = True
@@ -482,7 +482,7 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
                 break
 
             elif decision == "reject":
-                log(f"    → Rejected: {review.get('feedback', '')[:100]}")
+                log(f"    -> Rejected: {review.get('feedback', '')[:100]}")
                 log_delegation(task_spec, worker_result, "REJECTED")
                 if attempt < MAX_RETRIES:
                     revision_feedback = review.get("feedback", "Rejected. Try again.")
@@ -498,7 +498,7 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
                     })
 
             elif decision == "revise":
-                log(f"    → Revision: {review.get('feedback', '')[:100]}")
+                log(f"    -> Revision: {review.get('feedback', '')[:100]}")
                 if attempt < MAX_RETRIES:
                     revision_feedback = review.get("feedback", "Needs revision.")
                 else:
@@ -506,7 +506,7 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
                     pq = review.get("proof_wrong_quality", 0)
                     if pq >= 60:
                         all_changes.update(worker_result.get("changes", {}))
-                        log(f"    → Accepting after max revisions (quality {pq}/100)")
+                        log(f"    -> Accepting after max revisions (quality {pq}/100)")
                         results.append({
                             "subtask": subtask,
                             "routing": "worker",
@@ -533,7 +533,7 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
             full_path.parent.mkdir(parents=True, exist_ok=True)
             full_path.write_text(content)
             applied_files.append(filepath)
-            log(f"    ✓ {filepath}")
+            log(f"    + {filepath}")
     elif all_changes and dry_run:
         log(f"\n[Dry-run] Would write {len(all_changes)} file(s):")
         for filepath in all_changes:

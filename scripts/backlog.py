@@ -427,16 +427,16 @@ def cmd_stats(args) -> None:
     print(f"\n  By Status:")
     for s in ["in-progress", "blocked", "todo", "done"]:
         count = by_status.get(s, 0)
-        bar = "█" * count + "░" * max(0, 10 - count)
+        bar = "#" * count + "." * max(0, 10 - count)
         print(f"    {s:<12} {bar} {count}")
     print(f"\n  By Priority:")
     for p in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
         count = by_priority.get(p, 0)
-        bar = "█" * count + "░" * max(0, 10 - count)
+        bar = "#" * count + "." * max(0, 10 - count)
         print(f"    {p:<12} {bar} {count}")
     print(f"\n  By Type:")
     for t, count in sorted(by_type.items()):
-        bar = "█" * count + "░" * max(0, 10 - count)
+        bar = "#" * count + "." * max(0, 10 - count)
         print(f"    {t:<12} {bar} {count}")
     print()
 
