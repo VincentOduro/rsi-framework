@@ -1,5 +1,9 @@
 # Framework self-validation tests.
-# Add tests that verify the framework scripts work correctly.
+# These tests verify the framework scripts work correctly against themselves.
+
+import tempfile
+from pathlib import Path
+
 
 def test_preflight_check_imports():
     """Verify preflight_check.py can be imported."""
@@ -26,8 +30,76 @@ def test_self_optimization_imports():
 
 
 def test_self_verify_imports():
-    """Verify self_verify.py can be imported."""
+    """Verify self_verify.py LanguageChecker plugin system loads."""
     import scripts.self_verify as sv
-    assert hasattr(sv, 'check_imports_clean')
+    assert hasattr(sv, 'LANG_CHECKERS')
+    assert hasattr(sv, 'get_checker_for')
+    assert hasattr(sv, 'PythonChecker')
+    assert hasattr(sv, 'ShellChecker')
+    assert hasattr(sv, 'GenericTextChecker')
     assert hasattr(sv, 'find_placeholder_code')
-    assert hasattr(sv, 'find_functions_defined')
+
+
+def test_python_checker_syntax():
+    """PythonChecker detects valid and invalid Python syntax."""
+    import scripts.self_verify as sv
+    checker = sv.PythonChecker()
+
+    # Valid Python
+    with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
+        f.write("x = 1\n")
+        f.flush()
+        ok, err = checker.check_syntax(Path(f.name))
+    assert ok, f"Valid Python should pass: {err}"
+
+    # Invalid Python
+    with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
+        f.write("def broken(    \n")
+        f.flush()
+        ok, err = checker.check_syntax(Path(f.name))
+    assert not ok, "Invalid Python should fail"
+
+
+def test_shell_checker_syntax():
+    """ShellChecker detects valid and invalid shell syntax."""
+    import scripts.self_verify as sv
+    checker = sv.ShellChecker()
+
+    # Valid shell
+    with tempfile.NamedTemporaryFile(suffix=".sh", mode="w", delete=False) as f:
+        f.write("#!/bin/bash\necho hello\n")
+        f.flush()
+        ok, err = checker.check_syntax(Path(f.name))
+    assert ok, f"Valid shell should pass: {err}"
+
+    # Invalid shell (unclosed if)
+    with tempfile.NamedTemporaryFile(suffix=".sh", mode="w", delete=False) as f:
+        f.write("if true; then\necho")
+        f.flush()
+        ok, err = checker.check_syntax(Path(f.name))
+    assert not ok, "Invalid shell should fail"
+
+
+def test_placeholder_detection():
+    """find_placeholder_code detects TODO, NotImplementedError, etc."""
+    import scripts.self_verify as sv
+
+    with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
+        f.write("# TODO: fix this later\n")
+        f.write("def foo():\n")
+        f.write("    pass  # TODO\n")
+        f.flush()
+        issues = sv.find_placeholder_code(Path(f.name))
+
+    # Line 1 matches '# TODO'. Line 3 matches both '# TODO' and 'pass  #' -> 3 total.
+    assert len(issues) == 3, f"Expected 3 placeholders, got {len(issues)}: {issues}"
+
+
+def test_get_checker_for_file():
+    """get_checker_for returns correct checker by extension."""
+    import scripts.self_verify as sv
+
+    assert isinstance(sv.get_checker_for(Path("foo.py")), sv.PythonChecker)
+    assert isinstance(sv.get_checker_for(Path("foo.sh")), sv.ShellChecker)
+    assert isinstance(sv.get_checker_for(Path("foo.js")), sv.GenericTextChecker)
+    assert isinstance(sv.get_checker_for(Path("foo.txt")), sv.GenericTextChecker)
