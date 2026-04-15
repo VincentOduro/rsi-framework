@@ -200,12 +200,36 @@ def handle_pre_edit(tool_input: dict) -> None:
             print(f"[RSI] Read the file first, then retry the edit.")
             sys.exit(1)
 
+    # Role-aware write permission check
+    current_role = os.environ.get("RSI_ROLE", "overlord")
+    if current_role == "worker":
+        try:
+            from scripts.classify_file import classify_file
+            sensitivity = classify_file(rel)
+            if sensitivity == "constitution":
+                print(f"[RSI] BLOCKED: '{rel}' is constitution-level. Only overlord can modify.")
+                sys.exit(1)
+            if sensitivity == "guarded":
+                print(f"[RSI] Note: '{rel}' is guarded. This change will require overlord review.")
+        except ImportError:
+            pass
+
     # Surface relevant FAIL-index entries
     fail_entries = _get_relevant_fail_entries(filepath)
     if fail_entries:
         print(f"[RSI] FAIL-index entries to consider while editing '{rel}':")
         for entry in fail_entries[:5]:
             print(entry)
+
+    # Review queue gate — warn if pending reviews exist
+    try:
+        pending_dir = MEMORY_ROOT / "reviews" / "pending"
+        if pending_dir.exists():
+            pending_count = len(list(pending_dir.glob("*.md")))
+            if pending_count > 0:
+                print(f"[RSI] JIDOKA: {pending_count} pending review(s). Consider draining the queue.")
+    except Exception:
+        pass
 
 
 def handle_post_edit(tool_input: dict) -> None:

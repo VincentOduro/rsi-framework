@@ -285,6 +285,21 @@ def cmd_adapt(args: list[str]) -> None:
     print(f"\n{green('Done.')} Platform files generated.")
 
 
+def cmd_delegate(args: list[str]) -> None:
+    """Delegate a task to the worker model."""
+    _run("delegate.py", args)
+
+
+def cmd_review_queue(args: list[str]) -> None:
+    """Manage the review queue."""
+    _run("review_queue.py", args)
+
+
+def cmd_classify(args: list[str]) -> None:
+    """Classify file sensitivity."""
+    _run("classify_file.py", args)
+
+
 COMMANDS = {
     "init": (cmd_init, "Start a new session"),
     "capture": (cmd_capture, "Module A: post-implementation capture"),
@@ -299,6 +314,9 @@ COMMANDS = {
     "calibrate": (cmd_calibrate, "Proof-wrong calibration tracker"),
     "root-cause": (cmd_root_cause, "5-Whys root cause analysis"),
     "metrics": (cmd_metrics, "Metrics engine"),
+    "delegate": (cmd_delegate, "Send task to worker model (MiniMax-M2.7)"),
+    "review-queue": (cmd_review_queue, "Manage review queue (Jidoka)"),
+    "classify": (cmd_classify, "Check file sensitivity level"),
     "adapt": (cmd_adapt, "Generate platform-specific enforcement files"),
     "ci": (cmd_ci, "CI gate checks"),
     "setup": (cmd_setup, "One-time setup"),

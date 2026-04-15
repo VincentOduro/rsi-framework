@@ -1,0 +1,76 @@
+# .rsi/architecture.yaml
+# Per-project file sensitivity classification and role definitions.
+# Installed on first setup. User customizes patterns for their project.
+
+version: "1.0"
+
+roles:
+  overlord:
+    model: "claude-opus"
+    adapter: "claude"
+    description: "Architect, reviewer, decision-maker"
+    permissions:
+      - read_all
+      - write_all
+      - review
+      - delegate
+
+  worker:
+    model: "minimax-m2.7"
+    adapter: "opencode"
+    description: "Implementer, test writer, bulk generator"
+    permissions:
+      - read_all
+      - write_open
+      - write_guarded    # requires review before merge
+
+# File sensitivity classification
+# Uses glob patterns. First match wins. More specific patterns go first.
+file_sensitivity:
+  constitution:
+    description: "Only overlord can modify. Framework-critical files."
+    patterns:
+      - "CLAUDE.md"
+      - "FRAMEWORK.md"
+      - "TOYOTA_PRINCIPLES.md"
+      - ".rsi/**"
+      - "scripts/hooks.py"
+      - "scripts/delegate.py"
+      # Project-specific — add your own:
+      # - "src/core/interfaces/**"
+      # - "config/production.*"
+
+  guarded:
+    description: "Worker can modify, overlord must review before merge."
+    patterns:
+      - "scripts/*.py"
+      - "adapters/**"
+      # Project-specific — add your own:
+      # - "src/core/**"
+      # - "migrations/**"
+
+  open:
+    description: "Worker can freely modify. No review gate."
+    patterns:
+      - "tests/**"
+      - "docs/**"
+      - "*.md"
+      # Project-specific — add your own:
+      # - "src/adapters/**"
+      # - "src/utils/**"
+
+# Delegation settings
+delegation:
+  max_revision_cycles: 3
+  require_dry_run: true
+  require_proof_wrong: true
+  auto_apply_open_files: false
+
+# API configuration (env vars override these)
+worker_api:
+  provider: "minimax"
+  base_url: "https://api.minimaxi.chat/v1"
+  model: "MiniMax-M2.7"
+  max_tokens: 8192
+  timeout_seconds: 120
+  env_key: "MINIMAX_API_KEY"

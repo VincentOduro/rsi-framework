@@ -201,6 +201,44 @@ python3 scripts/rsi.py backlog list      # Task backlog
 python3 scripts/rsi.py root-cause interactive   # 5-Whys analysis
 python3 scripts/rsi.py calibrate resolve HYP-001 confirmed
 
+# Delegation (overlord-worker)
+python3 scripts/rsi.py delegate .rsi/tasks/TASK-001.json   # Send to worker
+python3 scripts/rsi.py review-queue list                    # Pending reviews
+python3 scripts/rsi.py review-queue accept TASK-001         # Accept output
+python3 scripts/rsi.py review-queue reject TASK-001 --reason "..."
+python3 scripts/rsi.py classify src/api.py                  # File sensitivity
+
 # CI
 python3 scripts/rsi.py ci               # Full CI gate
 ```
+
+## Multi-Model Delegation
+
+When working as the overlord in a multi-model setup:
+
+1. **Decompose before delegating.** Break work into tasks with clear acceptance
+   criteria. Each task spec must include files_to_read, files_to_modify,
+   acceptance_criteria, and proof_wrong.
+
+2. **Respect file sensitivity.** Never delegate constitution-level file changes
+   to the worker. The framework will block it, but don't even try.
+   Check with: `python3 scripts/rsi.py classify <filepath>`
+
+3. **Review before proceeding.** Drain the review queue before starting new
+   work. This is Jidoka — stop the line when there's a quality issue.
+
+4. **Track delegation metrics.** If the worker's revision cycles exceed 2 on
+   average, the task decomposition is too vague. Improve the specs.
+
+5. **The worker is not trusted.** Even accepted output must go through the
+   standard A→B→C loop. Delegation does not bypass the RSI process.
+
+### File Sensitivity Levels
+
+| Level | Who Can Modify | Review Required | Examples |
+|-------|---------------|-----------------|----------|
+| constitution | Overlord only | — | CLAUDE.md, .rsi/**, scripts/hooks.py |
+| guarded | Both, overlord reviews | Yes | scripts/*.py, adapters/** |
+| open | Both, freely | No | tests/**, docs/** |
+
+Configure in `.rsi/architecture.yaml`.
