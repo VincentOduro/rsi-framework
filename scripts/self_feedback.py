@@ -21,7 +21,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-PROJECT_ROOT = Path("/home/ajeem/wandering_codex")
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 MEMORY_ROOT = PROJECT_ROOT / ".memory"
 TECHNICAL_DIR = MEMORY_ROOT / "technical"
 AGENTS_DIR = MEMORY_ROOT / "agents"
