@@ -295,6 +295,8 @@ This is the most important discipline in the framework. Every implementation mus
 - "If another process deletes the class row between the check and the upsert, the upsert would insert a duplicate" → confirms the race was actually fixed
 - "If the cache has a stale entry for a merged entity, the wrong entity_id would be returned" → suggests cache invalidation is needed
 
+For a detailed rubric, anti-patterns, and examples by change type (bug fix, refactor, new feature, config, migration), see [`PROOF_WRONG_GUIDE.md`](PROOF_WRONG_GUIDE.md).
+
 ---
 
 ## Mandatory Discipline (Principle 5: Jidoka)
