@@ -220,6 +220,16 @@ When MINIMAX_API_KEY is set, you MUST route work through the delegation
 system. This is not optional. This is not "consider delegating." This is
 the standard work.
 
+**THIS IS ENFORCED AT THE TOOL LAYER.** If you try to edit a guarded or
+open file directly without a delegation trail, the pre-edit hook will
+BLOCK the edit. You will see "DELEGATION GATE BLOCKED." The only ways
+through are:
+1. Delegate via `delegate.py`, get it accepted, then the file is authorized
+2. Create a temporary override: `python3 scripts/rsi.py override <file> --reason "..."`
+   (expires after 1 hour — emergency use only)
+3. The file is constitution-level (you handle those directly)
+4. The file doesn't exist yet (creating new files is allowed)
+
 **DO NOT use the Agent tool, subagents, or background agents for work that
 the MiniMax worker should handle.** The Agent tool is for research and
 exploration only. All implementation, auditing, testing, analysis, and

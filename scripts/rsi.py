@@ -305,6 +305,64 @@ def cmd_classify(args: list[str]) -> None:
     _run("classify_file.py", args)
 
 
+def cmd_override(args: list[str]) -> None:
+    """Create a temporary override allowing direct edit of a delegatable file."""
+    from scripts.colors import green, yellow, red
+
+    if not args or args[0] in ("-h", "--help"):
+        print("Usage: python3 scripts/rsi.py override <filepath> --reason 'reason'")
+        print("       python3 scripts/rsi.py override --list")
+        print("       python3 scripts/rsi.py override --clear")
+        print("\nCreates a 1-hour override. Emergency escape hatch only.")
+        return
+
+    if args[0] == "--list":
+        override_dir = PROJECT_ROOT / ".rsi" / "overrides"
+        if not override_dir.exists() or not list(override_dir.glob("*.json")):
+            print("No active overrides.")
+            return
+        import json as _json
+        for of in sorted(override_dir.glob("*.json")):
+            data = _json.loads(of.read_text())
+            print(f"  {data.get('filepath', '?')}  reason: {data.get('reason', '?')}  ttl: {data.get('ttl_minutes', 60)}m")
+        return
+
+    if args[0] == "--clear":
+        override_dir = PROJECT_ROOT / ".rsi" / "overrides"
+        if override_dir.exists():
+            import shutil
+            shutil.rmtree(override_dir)
+            override_dir.mkdir(parents=True, exist_ok=True)
+        print(f"{green('Overrides cleared.')}")
+        return
+
+    filepath = args[0]
+    reason = ""
+    ttl = 60
+    i = 1
+    while i < len(args):
+        if args[i] == "--reason" and i + 1 < len(args):
+            reason = args[i + 1]
+            i += 2
+        elif args[i] == "--ttl" and i + 1 < len(args):
+            ttl = int(args[i + 1])
+            i += 2
+        else:
+            i += 1
+
+    if not reason:
+        print(f"{red('--reason is required.')} Why are you bypassing delegation?")
+        return
+
+    from scripts.hooks import create_override
+    override_file = create_override(filepath, reason, ttl)
+    print(f"{yellow('Override created:')} {filepath}")
+    print(f"  Reason: {reason}")
+    print(f"  Expires: {ttl} minutes")
+    print(f"  File: {override_file}")
+    print(f"\n{yellow('WARNING:')} This bypasses delegation enforcement. Use sparingly.")
+
+
 COMMANDS = {
     "init": (cmd_init, "Start a new session"),
     "capture": (cmd_capture, "Module A: post-implementation capture"),
@@ -323,6 +381,7 @@ COMMANDS = {
     "auto": (cmd_auto, "Auto-route: decompose -> delegate -> review -> apply"),
     "review-queue": (cmd_review_queue, "Manage review queue (Jidoka)"),
     "classify": (cmd_classify, "Check file sensitivity level"),
+    "override": (cmd_override, "Emergency override for delegation gate (1hr TTL)"),
     "adapt": (cmd_adapt, "Generate platform-specific enforcement files"),
     "ci": (cmd_ci, "CI gate checks"),
     "setup": (cmd_setup, "One-time setup"),

@@ -118,6 +118,104 @@ def _get_relevant_fail_entries(filepath: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Delegation trail checking
+# ---------------------------------------------------------------------------
+
+ACCEPTED_DIR = MEMORY_ROOT / "reviews" / "accepted"
+OVERRIDES_DIR = PROJECT_ROOT / ".rsi" / "overrides"
+
+
+def _has_delegation_trail(filepath: str) -> bool:
+    """Check if a file has been authorized through the delegation system.
+
+    Returns True if any accepted review in .memory/reviews/accepted/
+    references this file in its proposed changes section.
+    """
+    if not ACCEPTED_DIR.exists():
+        return False
+
+    # Normalize for cross-platform matching
+    normalized = filepath.replace("\\", "/")
+
+    for review_file in ACCEPTED_DIR.glob("*.md"):
+        try:
+            content = review_file.read_text().replace("\\", "/")
+            if normalized in content:
+                return True
+        except Exception:
+            continue
+
+    return False
+
+
+def _has_override(filepath: str) -> bool:
+    """Check if an explicit overlord override exists for this file.
+
+    Overrides are created via: python3 scripts/rsi.py override <filepath> --reason "..."
+    They live in .rsi/overrides/ as JSON files and expire after 1 hour.
+    """
+    if not OVERRIDES_DIR.exists():
+        return False
+
+    # Normalize for cross-platform matching
+    filepath = filepath.replace("\\", "/")
+
+    # Check for a matching override file
+    safe_name = filepath.replace("/", "_").replace("\\", "_")
+    override_file = OVERRIDES_DIR / f"{safe_name}.json"
+
+    if not override_file.exists():
+        # Also check wildcard overrides (e.g., override for "scripts/*.py")
+        for of in OVERRIDES_DIR.glob("*.json"):
+            try:
+                data = json.loads(of.read_text())
+                pattern = data.get("filepath", "")
+                if pattern and (pattern == filepath or
+                    (pattern.endswith("*") and filepath.startswith(pattern[:-1]))):
+                    # Check expiry
+                    from datetime import timedelta
+                    created = datetime.fromisoformat(data.get("created", "2000-01-01"))
+                    ttl_minutes = int(data.get("ttl_minutes", 60))
+                    if datetime.now(timezone.utc) - created < timedelta(minutes=ttl_minutes):
+                        return True
+            except Exception:
+                continue
+        return False
+
+    try:
+        data = json.loads(override_file.read_text())
+        from datetime import timedelta
+        created = datetime.fromisoformat(data.get("created", "2000-01-01"))
+        ttl_minutes = int(data.get("ttl_minutes", 60))
+        if datetime.now(timezone.utc) - created < timedelta(minutes=ttl_minutes):
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def create_override(filepath: str, reason: str, ttl_minutes: int = 60) -> Path:
+    """Create a temporary override allowing direct edit of a delegatable file.
+
+    Overrides expire after ttl_minutes (default: 60 minutes / 1 hour).
+    This is the emergency escape hatch — use sparingly.
+    """
+    OVERRIDES_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = filepath.replace("/", "_").replace("\\", "_")
+    override_file = OVERRIDES_DIR / f"{safe_name}.json"
+
+    data = {
+        "filepath": filepath,
+        "reason": reason,
+        "created": datetime.now(timezone.utc).isoformat(),
+        "ttl_minutes": ttl_minutes,
+    }
+    override_file.write_text(json.dumps(data, indent=2))
+    return override_file
+
+
+# ---------------------------------------------------------------------------
 # Hook handlers
 # ---------------------------------------------------------------------------
 
@@ -211,6 +309,36 @@ def handle_pre_edit(tool_input: dict) -> None:
                 sys.exit(1)
             if sensitivity == "guarded":
                 print(f"[RSI] Note: '{rel}' is guarded. This change will require overlord review.")
+        except ImportError:
+            pass
+
+    # ---- DELEGATION GATE ----
+    # When MINIMAX_API_KEY is set, Claude is the overlord and MUST delegate
+    # implementation work to MiniMax. Editing guarded/open files directly
+    # without a delegation trail is blocked.
+    minimax_key = os.environ.get("MINIMAX_API_KEY", "")
+    if minimax_key and current_role != "worker":
+        try:
+            from scripts.classify_file import classify_file
+            sensitivity = classify_file(rel)
+
+            # Constitution files: overlord handles directly — always allowed
+            # Guarded/open files: must have delegation trail or override
+            if sensitivity in ("guarded", "open") and Path(filepath).exists():
+                # Normalize for cross-platform matching
+                rel_normalized = rel.replace("\\", "/")
+                if not _has_delegation_trail(rel_normalized) and not _has_override(rel_normalized):
+                    print(f"[RSI] DELEGATION GATE BLOCKED: '{rel}' is {sensitivity}-level.")
+                    print(f"[RSI] MINIMAX_API_KEY is set -- you are the overlord, not the worker.")
+                    print(f"[RSI] Delegate this work to MiniMax first:")
+                    print(f"[RSI]   1. Write task spec: .rsi/tasks/TASK-NNN.json")
+                    print(f"[RSI]   2. Delegate: python3 scripts/rsi.py delegate .rsi/tasks/TASK-NNN.json")
+                    print(f"[RSI]   3. Review:  python3 scripts/rsi.py review-queue show TASK-NNN")
+                    print(f"[RSI]   4. Accept:  python3 scripts/rsi.py review-queue accept TASK-NNN --apply")
+                    print(f"[RSI]")
+                    print(f"[RSI] If this is an emergency fix, create an override:")
+                    print(f"[RSI]   python3 scripts/rsi.py override {rel} --reason 'reason'")
+                    sys.exit(1)
         except ImportError:
             pass
 
