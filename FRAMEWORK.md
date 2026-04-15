@@ -2,7 +2,7 @@
 
 A lightweight meta-process for software projects that turns every implementation into a learning opportunity, and every learning opportunity into the next implementation's improvement.
 
-**Status:** v1.2 | **Language:** Agnostic | **Stack:** Python + Bash + Git
+**Status:** v1.7 | **Language:** Agnostic | **Stack:** Python + Bash + Git
 
 ---
 
@@ -379,6 +379,9 @@ The framework is language-agnostic. For a different stack:
 | 2026-04-14 | v1.2 | Installed hooks, fixed PROJECT_ROOT bugs, updated sanity checks, GitHub Actions workflow, priority prefixes in task names, auto-seeded pre-flight state | Hooks not installed; CI broken; self_verify checked wrong things |
 | 2026-04-14 | v1.3 | **ALL PROCESSES MANDATORY**: Removed proportional ceremony, commit-msg hook blocks (no bypass), placeholder scan blocks, A→B→C always chains automatically, self-verify and tests always block on failure | None of the principles are optional |
 | 2026-04-14 | v1.4 | System-wide hook installation via `~/.git_template/hooks/`. Run `setup.sh` once per machine — hooks then work automatically for every clone. | Hook installation required manual step per project |
+| 2026-04-15 | v1.5 | Added `setup.py` (pure Python cross-platform), `setup.ps1` (PowerShell), fixed `readlink -f` → `os.path.realpath()` in hooks | P0 fixes for Windows compatibility |
+| 2026-04-15 | v1.6 | Fixed hardcoded `/home/ajeem/wandering_codex` paths in self_feedback.py, self_optimization.py, post_implementation.py | 3 of 5 scripts had hardcoded paths |
+| 2026-04-15 | v1.7 | Added 24h session expiry (RSI_SESSION_TTL_HOURS), --fresh flag to skip auto-seeding. Added PROOF_WRONG_GUIDE.md with examples by change type. Moved MagicMock-specific checks to PROJECT_SPECIFIC_CHECKS. | P1-1, P1-3, P2-1, P2-2, P2-3 |
 
 ### Known limitations
 
@@ -386,7 +389,7 @@ The framework is language-agnostic. For a different stack:
 2. **Module C pattern detection relies on user input.** Despite the explicit flag, you still have to recognize a pattern.
 3. **Round files can grow stale.** If sessions are missed, the round log gets gaps.
 4. **Cross-round deduplication is manual.** Module C prioritizes by weight, but duplicate feedback entries across rounds are possible.
-5. **Pre-flight seeding doesn't enforce actual reading.** Seeding from `git ls-files` means CI can't distinguish "file was read" from "file is just tracked". Use pre-commit hook locally for real enforcement.
+5. **Pre-flight seeding doesn't enforce actual reading.** Seeding from `git ls-files` means CI can't distinguish "file was read" from "file is just tracked". Use `--fresh` flag for strict enforcement (skips auto-seeding).
 6. **Priority assignment requires manual prefix.** Tasks without `[CRITICAL/HIGH/MEDIUM/LOW]` prefix default to MEDIUM.
 
 ### Improvements needed (backlog)
