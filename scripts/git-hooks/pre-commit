@@ -2,7 +2,7 @@
 # Pre-commit hook — BLOCKS commit if quality checks fail
 # Principle 5: Stop and fix quality problems before proceeding
 # Principle 12: Genchi Genbutsu — read files before editing
-# Install: ln -s ../../scripts/git-hooks/pre-commit .git/hooks/pre-commit
+# Installed via: ~/.git_template/hooks/ (system-wide) or git config core.hooksPath
 
 set -e
 

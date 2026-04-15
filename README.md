@@ -36,18 +36,19 @@ Each TPS principle maps to a concrete RSI mechanism:
 cp -r rsi-framework/ /path/to/your-project/
 cd /path/to/your-project
 
-# 2. Install git hooks
-bash scripts/install_hooks.sh
+# 2. ONE-TIME SETUP (per machine):
+bash scripts/setup.sh
 
-# 3. Initialize memory structure
-cp -r MEMORY_TEMPLATE .memory
+# 3. For this project, configure hooks:
+git config core.hooksPath ~/.git_template/hooks
 
-# 4. After every code change, run:
+# 4. Initialize memory structure
+cp -r rsi-framework/MEMORY_TEMPLATE .memory
+
+# 5. After every code change, run:
 python3 scripts/post_implementation.py --interactive
-python3 scripts/self_feedback.py
-python3 scripts/self_optimization.py
 
-# 5. Before pushing, verify:
+# 6. Before pushing, verify:
 bash scripts/ci_check.sh
 ```
 

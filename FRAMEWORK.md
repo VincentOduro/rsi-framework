@@ -157,7 +157,7 @@ rsi-framework/
 │   ├── self_verify.py           # Pre-commit verification
 │   ├── preflight_check.py       # Pre-flight: read before edit
 │   ├── ci_check.sh              # CI gate
-│   ├── install_hooks.sh          # Hook installer
+│   ├── setup.sh                  # System-wide hook setup (one-time per machine)
 │   ├── init.sh                   # Start of session
 │   ├── review.sh                 # Assess current state
 │   ├── checkpoint.sh              # End of session
@@ -238,7 +238,9 @@ Three enforcement layers:
 
 ### Layer 2: Git Hooks
 
-Install once: `bash scripts/install_hooks.sh`
+Hooks are installed system-wide via `~/.git_template/hooks/`. Run once per machine: `bash scripts/setup.sh`
+
+After setup, hooks work automatically for every `git clone`. For existing repos: `git config core.hooksPath ~/.git_template/hooks`
 
 | Hook | What | Blocks? |
 |---|---|---|
@@ -246,8 +248,7 @@ Install once: `bash scripts/install_hooks.sh`
 | `pre-commit` | Runs `self_verify.py` on changed `.py` files | **Yes** |
 | `pre-commit` | Checks shell script syntax | **Yes** |
 | `pre-commit` | Auto-records files as read after verification | — |
-| `pre-commit` | Warns if code changed but memory not updated | No |
-| `commit-msg` | Warns if no memory update alongside code change | No |
+| `commit-msg` | Blocks commit if code changed without memory update | **Yes** |
 
 ### Layer 3: CI
 
@@ -336,7 +337,7 @@ These work unchanged in any project:
 - All scripts except `self_verify.py` and `preflight_check.py` (project root path)
 - `scripts/init.sh`, `review.sh`, `checkpoint.sh`
 - `scripts/post_implementation.py`, `self_feedback.py`, `self_optimization.py`
-- `scripts/ci_check.sh`, `install_hooks.sh`
+- `scripts/ci_check.sh`, `setup.sh`
 - All `git-hooks/`
 
 ### 4. Add project-specific sanity checks
@@ -375,22 +376,21 @@ The framework is language-agnostic. For a different stack:
 | 2026-04-14 | v1.1 | Pre-flight check (files must be read before editing), mandatory "what could prove this wrong?" in Module A | Framework bypassed in practice; discipline required enforcement |
 | 2026-04-14 | v1.2 | Installed hooks, fixed PROJECT_ROOT bugs, updated sanity checks, GitHub Actions workflow, priority prefixes in task names, auto-seeded pre-flight state | Hooks not installed; CI broken; self_verify checked wrong things |
 | 2026-04-14 | v1.3 | **ALL PROCESSES MANDATORY**: Removed proportional ceremony, commit-msg hook blocks (no bypass), placeholder scan blocks, A→B→C always chains automatically, self-verify and tests always block on failure | None of the principles are optional |
+| 2026-04-14 | v1.4 | System-wide hook installation via `~/.git_template/hooks/`. Run `setup.sh` once per machine — hooks then work automatically for every clone. | Hook installation required manual step per project |
 
 ### Known limitations
 
-1. **Hook enforcement is installable, not automatic.** `bash scripts/install_hooks.sh` after cloning.
-2. **Module B automated review is shallow.** Keyword matching only; misses logic bugs. Manual review is required and is the primary method.
-3. **Module C pattern detection relies on user input.** Despite the explicit flag, you still have to recognize a pattern.
-4. **Round files can grow stale.** If sessions are missed, the round log gets gaps.
-5. **Cross-round deduplication is manual.** Module C prioritizes by weight, but duplicate feedback entries across rounds are possible.
-6. **Pre-flight seeding doesn't enforce actual reading.** Seeding from `git ls-files` means CI can't distinguish "file was read" from "file is just tracked". Use pre-commit hook locally for real enforcement.
-7. **Priority assignment requires manual prefix.** Tasks without `[CRITICAL/HIGH/MEDIUM/LOW]` prefix default to MEDIUM.
+1. **Module B automated review is shallow.** Keyword matching only; misses logic bugs. Manual review is required and is the primary method.
+2. **Module C pattern detection relies on user input.** Despite the explicit flag, you still have to recognize a pattern.
+3. **Round files can grow stale.** If sessions are missed, the round log gets gaps.
+4. **Cross-round deduplication is manual.** Module C prioritizes by weight, but duplicate feedback entries across rounds are possible.
+5. **Pre-flight seeding doesn't enforce actual reading.** Seeding from `git ls-files` means CI can't distinguish "file was read" from "file is just tracked". Use pre-commit hook locally for real enforcement.
+6. **Priority assignment requires manual prefix.** Tasks without `[CRITICAL/HIGH/MEDIUM/LOW]` prefix default to MEDIUM.
 
 ### Improvements needed (backlog)
 
 | Priority | Improvement | Why |
 |---|---|---|
-| HIGH | Pre-commit hook auto-installer | Remove manual `install_hooks.sh` step |
 | MEDIUM | Module B: LLM-assisted code review | Replace keyword matching with actual analysis |
 | MEDIUM | Cross-round deduplication in Module C | Prevent duplicate feedback entries |
 | LOW | Pre-flight auto-record after read | Pre-flight detects reading via file access, not manual record |

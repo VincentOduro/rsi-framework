@@ -1,7 +1,7 @@
 #!/bin/bash
 # Commit-msg hook — BLOCKS commit if code changes without memory update
 # Principle 5: Stop and fix quality problems before proceeding
-# Install: ln -s ../../scripts/git-hooks/commit-msg .git/hooks/commit-msg
+# Installed via: ~/.git_template/hooks/ (system-wide) or git config core.hooksPath
 
 set -e
 
