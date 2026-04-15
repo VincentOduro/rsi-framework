@@ -44,7 +44,7 @@ The framework is built on 14 Toyota Production System principles. See `TOYOTA_PR
 Key mappings:
 - **Genchi Genbutsu (Go and see):** Pre-flight check — read files before editing
 - **Hansei (Reflection):** "What could prove this wrong?" after every fix
-- **Jidoka (Quality at source):** CI blocks commits when quality checks fail
+- **Jidoka (Quality at source):** CI and commit-msg hook block commits when quality checks fail — no bypass, no continue anyway
 - **Kaizen (Continuous improvement):** A→B→C loop runs after every change
 - **Nemawashi (Slow consensus):** Mandatory reflection slows decisions, rapid implementation follows
 - **Heijunka (Level workload):** Proportional ceremony — match ceremony to change size
@@ -248,7 +248,7 @@ After setup, hooks work automatically for every `git clone`. For existing repos:
 | `pre-commit` | Runs `self_verify.py` on changed `.py` files | **Yes** |
 | `pre-commit` | Checks shell script syntax | **Yes** |
 | `pre-commit` | Auto-records files as read after verification | — |
-| `commit-msg` | Blocks commit if code changed without memory update | **Yes** |
+| `commit-msg` | **BLOCKS** commit if code changed without a corresponding memory update (Module A entry) | **Yes** — no bypass, no continue anyway |
 
 ### Layer 3: CI
 
