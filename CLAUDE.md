@@ -225,6 +225,15 @@ the MiniMax worker should handle.** The Agent tool is for research and
 exploration only. All implementation, auditing, testing, analysis, and
 bulk generation goes through `delegate.py` → MiniMax → `review_queue.py`.
 
+**DO NOT use `rsi.py auto` or `auto_delegate.py` from within Claude Code.**
+That script calls the Anthropic API to use Claude as overlord — but YOU are
+already Claude. Using it means paying for Claude twice. Instead, you do the
+overlord work (decompose, review) natively, and only call `delegate.py`
+(which calls MiniMax) for the worker tasks.
+
+**The only API key required is MINIMAX_API_KEY.** You do NOT need ANTHROPIC_API_KEY.
+You ARE Claude. You don't call yourself via API.
+
 If you catch yourself spawning Claude subagents for implementation or
 analysis work, STOP. That is a process violation. Route through delegation.
 
@@ -241,6 +250,7 @@ echo $MINIMAX_API_KEY
 
 If not set → handle everything yourself. No error, no complaint, just work.
 If set → you MUST use the delegation workflow below.
+Do NOT check or require ANTHROPIC_API_KEY. You don't need it. You ARE Claude.
 
 **Step 1: Classify the task.** Determine which parts are delegatable.
 
