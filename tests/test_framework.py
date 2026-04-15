@@ -113,3 +113,15 @@ def test_session_check_functions_exist():
     assert hasattr(pc, 'cmd_start')
     assert hasattr(pc, '_is_session_expired')
     assert hasattr(pc, '_touch_session')
+
+
+def test_backlog_imports():
+    """Verify backlog.py can be imported."""
+    import scripts.backlog as bl
+    assert hasattr(bl, 'VALID_TYPES')
+    assert hasattr(bl, 'VALID_STATUSES')
+    assert hasattr(bl, 'cmd_add')
+    assert hasattr(bl, 'cmd_list')
+    assert hasattr(bl, 'cmd_show')
+    assert hasattr(bl, 'cmd_update')
+    assert hasattr(bl, 'cmd_stats')

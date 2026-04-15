@@ -2,7 +2,7 @@
 
 A lightweight meta-process for software projects that turns every implementation into a learning opportunity, and every learning opportunity into the next implementation's improvement.
 
-**Status:** v1.9 | **Language:** Agnostic | **Stack:** Python + Bash + Git
+**Status:** v1.10 | **Language:** Agnostic | **Stack:** Python + Bash + Git
 
 ---
 
@@ -148,9 +148,11 @@ rsi-framework/
 │   │   ├── decisions.md          # Architecture decisions with rationale
 │   │   └── patterns.md           # Reusable code patterns
 │   └── agents/                   # Task state
-│       └── current-task.md      # Active tasks
+│       ├── current-task.md      # Active tasks (legacy)
+│       └── backlog.md           # Standard task backlog (v1.10+)
 ├── scripts/                      # Workflow automation (agnostic)
 │   ├── __init__.py              # Package marker
+│   ├── backlog.py               # Backlog manager (add/list/update/show/stats)
 │   ├── post_implementation.py    # Module A
 │   ├── self_feedback.py         # Module B
 │   ├── self_optimization.py     # Module C
@@ -384,6 +386,7 @@ The framework is language-agnostic. For a different stack:
 | 2026-04-15 | v1.7 | Added 24h session expiry (RSI_SESSION_TTL_HOURS), --fresh flag to skip auto-seeding. Added PROOF_WRONG_GUIDE.md with examples by change type. Moved MagicMock-specific checks to PROJECT_SPECIFIC_CHECKS. | P1-1, P1-3, P2-1, P2-2, P2-3 |
 | 2026-04-15 | v1.8 | Added pluggable LanguageChecker architecture to self_verify.py. Added FAIL-index usage guide to FRAMEWORK.md. Expanded framework self-tests. | P3-1, P3-2, P3-3 |
 | 2026-04-15 | v1.9 | Added pre-commit Stage 0 session check (`--require-session`). Added `--start` to preflight_check.py. Documented Module B as interactive-only (CI uses non-interactive path). | Session enforcement gap from v1.8 proposal |
+| 2026-04-15 | v1.10 | Added markdown-based backlog system (`backlog.md` + `scripts/backlog.py`) with standard task format. Supports add/list/show/update/stats. | Consistent task tracking across all projects |
 
 ## Using FAIL-index
 
@@ -421,6 +424,58 @@ Example new entry:
 ```
 | FAIL-010 | Committing without reviewing hook output | Always read the full commit-msg hook output before the commit completes |
 ```
+
+---
+
+## Backlog System (v1.10+)
+
+The framework includes a lightweight, markdown-based backlog system for consistent task tracking across all projects.
+
+### Core Files
+
+- `.memory/backlog.md` — Standard task backlog (copy from `MEMORY_TEMPLATE/backlog.md`)
+- `scripts/backlog.py` — Backlog manager CLI
+
+### Task Format
+
+Every task has:
+| Field | Required | Values |
+|-------|----------|--------|
+| `id` | Yes (auto) | `TSK-001`, `TSK-002`, ... |
+| `type` | Yes | `feature`, `bug`, `refactor`, `chore`, `spike`, `docs` |
+| `title` | Yes | Free text |
+| `status` | Yes | `todo`, `in-progress`, `blocked`, `done` |
+| `priority` | Yes | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` |
+| `estimate` | No | `xs`, `s`, `m`, `l`, `xl` |
+| `assignee` | No | Free text |
+| `related` | No | `TSK-XXX`, `FAIL-004`, `round-NNN` |
+| `blocked-by` | No | `TSK-XXX` |
+
+### Workflow
+
+```bash
+# Add a task
+python3 scripts/backlog.py add --type bug --title "Fix auth token" --priority HIGH --estimate m
+
+# List tasks (filter by status, priority, type)
+python3 scripts/backlog.py list --status todo
+python3 scripts/backlog.py list --priority CRITICAL
+
+# Show task details
+python3 scripts/backlog.py show TSK-001
+
+# Update task (move to in-progress, mark done, etc.)
+python3 scripts/backlog.py update TSK-001 --status done --completed 2026-04-15
+
+# Stats
+python3 scripts/backlog.py stats
+```
+
+### Relationship to current-task.md
+
+- `backlog.md` (v1.10+) is the **primary** task tracker
+- `current-task.md` is the **legacy** per-session task tracker (Module C output)
+- New projects should use `backlog.md`; existing projects can migrate tasks
 
 ---
 
