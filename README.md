@@ -2,7 +2,7 @@
 
 A lightweight meta-process that turns every implementation into a learning opportunity, and every learning opportunity into the next implementation's improvement. Built on Toyota Production System principles.
 
-**Status:** v1.2 | **Language:** Agnostic | **Stack:** Python + Bash + Git
+**Status:** v1.8 | **Language:** Agnostic | **Stack:** Python + Bash + Git
 
 ---
 
@@ -15,7 +15,7 @@ Each TPS principle maps to a concrete RSI mechanism:
 | 1 | Long-term philosophy over short-term goals | — | The framework IS the long-term investment. "Just fix it" creates regressions. The cost is always paid. |
 | 2 | Continuous process flow | Kaizen | The A→B→C loop (Implement → Capture → Review → Optimize) runs after every change, no matter how small. |
 | 3 | Pull systems (avoid overproduction) | — | Checks run only when changes exist (git-diff detected). No scheduled noise. |
-| 4 | Level the workload | Heijunka | **Proportional ceremony**: hotfix = self_verify only; refactor = full A+B+C. |
+| 4 | Level the workload | Heijunka | Every change runs the full A→B→C loop. No "small fix" exemption. |
 | 5 | Stop and fix quality first time | Jidoka | CI blocks commits when checks fail. Quality gates are **blocking**, not advisory. |
 | 6 | Standardized tasks as foundation | — | The framework scripts ARE the standard. Everyone uses identical capture/feedback/optimization. |
 | 7 | Visual control (no hidden problems) | 5S | Task tracker, round logs, CI output, self_verify reports — all visible, all in git. |
@@ -32,23 +32,18 @@ Each TPS principle maps to a concrete RSI mechanism:
 ## Quick Start
 
 ```bash
-# 1. Copy framework to your project
-cp -r rsi-framework/ /path/to/your-project/
-cd /path/to/your-project
+# 1. ONE-TIME SETUP (per machine):
+python3 scripts/setup.py        # Cross-platform (Linux/macOS/Windows)
+# Or: bash scripts/setup.sh     # Bash only
+# Or: powershell -File scripts/setup.ps1  # Windows PowerShell
 
-# 2. ONE-TIME SETUP (per machine):
-bash scripts/setup.sh
+# 2. Initialize memory structure (one-time per project):
+cp -r MEMORY_TEMPLATE .memory
 
-# 3. For this project, configure hooks:
-git config core.hooksPath ~/.git_template/hooks
+# 3. After every code change, run the A→B→C loop:
+python3 scripts/post_implementation.py --interactive --run-feedback --run-optimization
 
-# 4. Initialize memory structure
-cp -r rsi-framework/MEMORY_TEMPLATE .memory
-
-# 5. After every code change, run:
-python3 scripts/post_implementation.py --interactive
-
-# 6. Before pushing, verify:
+# 4. Before pushing:
 bash scripts/ci_check.sh
 ```
 
@@ -74,9 +69,14 @@ After Module B. Prioritizes findings, plans next round, documents reusable patte
 | File | Purpose |
 |---|---|
 | `FRAMEWORK.md` | Full framework documentation |
-| `scripts/self_verify.py` | Pre-commit verification (imports, placeholders, sanity checks) |
-| `scripts/preflight_check.py` | Enforce "read before edit" discipline |
-| `scripts/ci_check.sh` | Full CI gate (6 checks) |
+| `PROOF_WRONG_GUIDE.md` | Examples of good/bad "what could prove this wrong?" answers |
+| `scripts/self_verify.py` | Pre-commit verification with pluggable language checkers |
+| `scripts/preflight_check.py` | Enforce "read before edit" discipline, session expiry |
+| `scripts/post_implementation.py` | Module A: capture what happened |
+| `scripts/self_feedback.py` | Module B: review, optimize, improve |
+| `scripts/self_optimization.py` | Module C: prioritize and plan |
+| `scripts/ci_check.sh` | Full CI gate |
+| `setup.py` / `setup.ps1` | Cross-platform one-time installer (Python/PowerShell) |
 | `MEMORY_TEMPLATE/` | Copy to `.memory/` in your project |
 
 ---
@@ -118,5 +118,8 @@ Examples:
 | v1.0 | Added enforcement (git hooks + CI), A→B→C chaining |
 | v1.1 | Pre-flight check, mandatory "what could prove this wrong?" |
 | v1.2 | GitHub Actions, fixed PROJECT_ROOT bugs, updated sanity checks, task tracker format |
+| v1.5 | Cross-platform installers: `setup.py` (Python), `setup.ps1` (PowerShell), `os.path.realpath()` in hooks |
+| v1.7 | 24h session expiry, `--fresh` flag to skip auto-seeding, PROOF_WRONG_GUIDE.md |
+| v1.8 | Pluggable LanguageChecker architecture in self_verify.py, FAIL-index usage guide, expanded self-tests |
 
-See `FRAMEWORK.md` for full documentation.
+See [`FRAMEWORK.md`](FRAMEWORK.md) for full documentation.
