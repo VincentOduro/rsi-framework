@@ -1,0 +1,40 @@
+#!/bin/bash
+# Commit-msg hook — BLOCKS commit if code changes without memory update
+# Principle 5: Stop and fix quality problems before proceeding
+# Install: ln -s ../../scripts/git-hooks/commit-msg .git/hooks/commit-msg
+
+set -e
+
+REAL_PATH="$(readlink -f "$BASH_SOURCE[0]")"
+PROJECT_ROOT="$(cd "$(dirname "$REAL_PATH")/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
+RED='\033[91m'
+GREEN='\033[92m'
+RESET='\033[0m'
+
+# Get files in this commit
+COMMIT_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+SRC_CHANGED=$(echo "$COMMIT_FILES" | grep -E "^src/.*\.py$" || true)
+MEMORY_CHANGED=$(echo "$COMMIT_FILES" | grep -E "^(\.memory/|MEMORY\.md|scripts/(post_implementation|self_feedback|self_optimization)\.py)" || true)
+
+# If code changed but no memory update, BLOCK
+if [ -n "$SRC_CHANGED" ] && [ -z "$MEMORY_CHANGED" ]; then
+    echo ""
+    echo "${RED}✗ COMMIT BLOCKED — Source files changed without memory update${RESET}"
+    echo ""
+    echo "Changed source files:"
+    echo "$SRC_CHANGED" | sed 's/^/  /'
+    echo ""
+    echo "Memory files in this commit: (none)"
+    echo ""
+    echo "Before committing, you MUST run:"
+    echo "  python3 scripts/post_implementation.py --interactive"
+    echo "  python3 scripts/self_feedback.py"
+    echo "  python3 scripts/self_optimization.py"
+    echo ""
+    echo "This is a mandatory gate, not a warning."
+    exit 1
+fi
+
+exit 0

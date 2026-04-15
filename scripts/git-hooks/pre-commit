@@ -1,0 +1,92 @@
+#!/bin/bash
+# Pre-commit hook — BLOCKS commit if quality checks fail
+# Principle 5: Stop and fix quality problems before proceeding
+# Principle 12: Genchi Genbutsu — read files before editing
+# Install: ln -s ../../scripts/git-hooks/pre-commit .git/hooks/pre-commit
+
+set -e
+
+# Resolve symlink to get real path, then go up to project root
+# Hook installed as: ln -s ../../scripts/git-hooks/pre-commit .git/hooks/pre-commit
+# BASH_SOURCE[0] = .git/hooks/pre-commit (symlink) → resolves to scripts/git-hooks/pre-commit
+REAL_PATH="$(readlink -f "$BASH_SOURCE[0]")"
+PROJECT_ROOT="$(cd "$(dirname "$REAL_PATH")/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
+RED='\033[91m'
+GREEN='\033[92m'
+RESET='\033[0m'
+
+echo "Running pre-commit checks..."
+
+# ---- 0. Pre-flight: verify files were read before being edited ----
+echo ""
+echo "[PRE-FLIGHT] Checking if files were read before being edited..."
+PREFLIGHT_RESULT=$(python3 -B "$PROJECT_ROOT/scripts/preflight_check.py" --check-edited 2>&1)
+PREFLIGHT_EXIT=$?
+if [ $PREFLIGHT_EXIT -ne 0 ]; then
+    echo "$PREFLIGHT_RESULT"
+    echo "${RED}✗ Pre-flight FAILED — files edited without being read${RESET}"
+    echo ""
+    echo "You MUST read files before editing them."
+    echo "To record reading: python3 scripts/preflight_check.py --record FILE"
+    exit 1
+else
+    echo "${GREEN}✓ Pre-flight passed${RESET}"
+fi
+
+# ---- 1. Get changed files ----
+CHANGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+SRC_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^src/.*\.py$" || true)
+SCRIPT_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^scripts/.*\.(py|sh)$" || true)
+
+# ---- 2. If source files changed, run self_verify ----
+if [ -n "$SRC_CHANGED" ]; then
+    echo ""
+    echo "[SELF-VERIFY] Running self-verify on changed files..."
+    SRC_ARGS=$(echo "$SRC_CHANGED" | tr '\n' ' ')
+
+    CHECK_RESULT=$(python3 -B "$PROJECT_ROOT/scripts/self_verify.py" --files $SRC_ARGS --skip-tests 2>&1)
+    CHECK_EXIT=$?
+
+    if [ $CHECK_EXIT -ne 0 ]; then
+        echo ""
+        echo "${RED}✗ self_verify FAILED — commit blocked${RESET}"
+        echo "$CHECK_RESULT" | tail -10
+        echo ""
+        echo "Fix the issues above, then retry commit."
+        exit 1
+    else
+        echo "${GREEN}✓ self_verify passed${RESET}"
+        for f in $SRC_CHANGED; do
+            python3 -B "$PROJECT_ROOT/scripts/preflight_check.py" --record "$f" 2>/dev/null
+        done
+    fi
+fi
+
+# ---- 3. If scripts changed, check syntax ----
+if [ -n "$SCRIPT_CHANGED" ]; then
+    echo ""
+    echo "[SYNTAX] Checking scripts..."
+    for f in $SCRIPT_CHANGED; do
+        if [[ "$f" == *.py ]]; then
+            python3 -B -m py_compile "$PROJECT_ROOT/$f" 2>&1 || {
+                echo "${RED}✗ Syntax error in $f${RESET}"
+                exit 1
+            }
+        elif [[ "$f" == *.sh ]]; then
+            bash -n "$PROJECT_ROOT/$f" 2>&1 || {
+                echo "${RED}✗ Shell syntax error in $f${RESET}"
+                exit 1
+            }
+        fi
+    done
+    echo "${GREEN}✓ Script syntax OK${RESET}"
+    for f in $SCRIPT_CHANGED; do
+        python3 -B "$PROJECT_ROOT/scripts/preflight_check.py" --record "$f" 2>/dev/null
+    done
+fi
+
+echo ""
+echo "${GREEN}✓ Pre-commit checks complete${RESET}"
+exit 0
