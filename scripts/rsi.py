@@ -1,0 +1,334 @@
+#!/usr/bin/env python3
+"""
+rsi — unified CLI for the Recursive Self-Improvement framework.
+
+One command to rule them all. Replaces remembering 8 different script names.
+
+Usage:
+    python3 scripts/rsi.py init              # Start session
+    python3 scripts/rsi.py capture            # Module A
+    python3 scripts/rsi.py review             # Module B
+    python3 scripts/rsi.py optimize           # Module C
+    python3 scripts/rsi.py loop               # A->B->C chained
+    python3 scripts/rsi.py verify             # Self-verify
+    python3 scripts/rsi.py preflight          # Pre-flight check
+    python3 scripts/rsi.py ceremony           # Check ceremony level
+    python3 scripts/rsi.py dashboard          # Andon board
+    python3 scripts/rsi.py backlog [cmd]      # Backlog management
+    python3 scripts/rsi.py calibrate [cmd]    # Calibration tracker
+    python3 scripts/rsi.py root-cause         # 5-Whys analysis
+    python3 scripts/rsi.py metrics [cmd]      # Metrics engine
+    python3 scripts/rsi.py ci                 # CI gate
+    python3 scripts/rsi.py setup              # One-time setup
+    python3 scripts/rsi.py sync               # Framework sync
+    python3 scripts/rsi.py status             # Quick status
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+SCRIPTS_DIR = PROJECT_ROOT / "scripts"
+
+
+def _run(script: str, args: list[str] | None = None, allow_failure: bool = False) -> int:
+    """Run a Python script. Exits on failure unless allow_failure=True.
+
+    Captures stderr to print on failure for better error visibility.
+    """
+    cmd = [sys.executable, str(SCRIPTS_DIR / script)] + (args or [])
+    result = subprocess.run(
+        cmd,
+        cwd=PROJECT_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        if result.stderr:
+            print(result.stderr.strip(), file=sys.stderr)
+        if not allow_failure:
+            sys.exit(result.returncode)
+    return result.returncode
+
+
+def _run_bash(script: str, args: list[str] | None = None, allow_failure: bool = False) -> int:
+    """Run a bash script. Exits on failure unless allow_failure=True.
+
+    Captures stderr to print on failure for better error visibility.
+    """
+    cmd = ["bash", str(SCRIPTS_DIR / script)] + (args or [])
+    result = subprocess.run(
+        cmd,
+        cwd=PROJECT_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        if result.stderr:
+            print(result.stderr.strip(), file=sys.stderr)
+        if not allow_failure:
+            sys.exit(result.returncode)
+    return result.returncode
+
+
+def cmd_init(args: list[str]) -> None:
+    """Start a new session."""
+    _run_bash("init.sh", args, allow_failure=True)
+    _run("preflight_check.py", ["--start"])
+    # Record metrics
+    try:
+        from scripts.metrics import record
+        record("session_start")
+    except ImportError:
+        pass
+
+
+def cmd_capture(args: list[str]) -> None:
+    """Module A: Post-implementation capture."""
+    _run("post_implementation.py", args)
+
+
+def cmd_review(args: list[str]) -> None:
+    """Module B: Self-feedback."""
+    _run("self_feedback.py", args)
+
+
+def cmd_optimize(args: list[str]) -> None:
+    """Module C: Self-optimization."""
+    _run("self_optimization.py", args)
+
+
+def cmd_loop(args: list[str]) -> None:
+    """Run the full A->B->C loop."""
+    # First classify ceremony level
+    from scripts.ceremony import classify_change
+    from scripts.colors import green, yellow, cyan, bold
+    result = classify_change()
+    level = result["level"]
+
+    print(f"\n{bold(f'Ceremony level: {level.upper()}')} — {result['reason']}")
+    for i, step in enumerate(result["required_steps"], 1):
+        print(f"  {i}. {step}")
+    print()
+
+    _run("post_implementation.py", ["--interactive", "--run-feedback", "--run-optimization"] + args)
+
+
+def cmd_verify(args: list[str]) -> None:
+    """Self-verification."""
+    _run("self_verify.py", args)
+
+
+def cmd_preflight(args: list[str]) -> None:
+    """Pre-flight check."""
+    _run("preflight_check.py", args)
+
+
+def cmd_ceremony(args: list[str]) -> None:
+    """Check ceremony level for current changes."""
+    _run("ceremony.py", args)
+
+
+def cmd_dashboard(args: list[str]) -> None:
+    """Show the andon dashboard."""
+    _run("dashboard.py", args)
+
+
+def cmd_backlog(args: list[str]) -> None:
+    """Backlog management."""
+    _run("backlog.py", args)
+
+
+def cmd_calibrate(args: list[str]) -> None:
+    """Calibration tracker."""
+    _run("calibration.py", args)
+
+
+def cmd_root_cause(args: list[str]) -> None:
+    """5-Whys root cause analysis."""
+    _run("root_cause.py", args)
+
+
+def cmd_metrics(args: list[str]) -> None:
+    """Metrics engine."""
+    _run("metrics.py", args)
+
+
+def cmd_ci(args: list[str]) -> None:
+    """Run CI checks."""
+    _run_bash("ci_check.sh", args)
+
+
+def cmd_setup(args: list[str]) -> None:
+    """One-time setup."""
+    _run("setup.py", args)
+
+
+def cmd_sync(args: list[str]) -> None:
+    """Framework sync."""
+    _run("framework_sync.py", args)
+
+
+def cmd_status(args: list[str]) -> None:
+    """Quick status overview."""
+    from scripts.colors import green, yellow, red, bold, header
+
+    print(header("RSI STATUS"))
+
+    # Session
+    session_file = PROJECT_ROOT / ".memory" / ".session_timestamp"
+    if session_file.exists():
+        import json
+        try:
+            from scripts.hooks import _is_session_expired, _get_session_time_remaining
+            data = json.loads(session_file.read_text())
+            started = data.get('timestamp', '?')[:19]
+            ttl_hours = int(data.get("ttl_hours", 24))
+
+            if _is_session_expired():
+                print(f"\n  Session: {red('EXPIRED')} (started {started}, TTL {ttl_hours}h)")
+                print(f"  Run 'python3 scripts/rsi.py init' to start a new session")
+            else:
+                expiring_soon, minutes = _get_session_time_remaining()
+                if expiring_soon:
+                    print(f"\n  Session: {yellow(f'active')} (started {started}, {minutes}m remaining)")
+                    print(f"  Run 'python3 scripts/rsi.py init' to extend session")
+                else:
+                    print(f"\n  Session: {green('active')} (started {started}, TTL {ttl_hours}h)")
+        except Exception:
+            print(f"\n  Session: {yellow('unknown')}")
+    else:
+        print(f"\n  Session: {yellow('no active session')}")
+
+    # Memory
+    memory_dir = PROJECT_ROOT / ".memory"
+    if memory_dir.exists():
+        rounds = len(list((memory_dir / "rounds").glob("round-*.md"))) if (memory_dir / "rounds").exists() else 0
+        print(f"  Rounds:  {rounds}")
+    else:
+        print(f"  Memory:  {yellow('not initialized (run: rsi setup)')}")
+
+    # Ceremony level
+    try:
+        from scripts.ceremony import classify_change
+        result = classify_change()
+        print(f"  Ceremony: {result['level']} ({result['files_changed']} files, {result['lines_changed']} lines)")
+    except Exception:
+        pass
+
+    # Calibration
+    try:
+        from scripts.calibration import calibration_score
+        score = calibration_score()
+        if score["total"]:
+            print(f"  Hypotheses: {score['total']} ({score['open']} open)")
+    except Exception:
+        pass
+
+    print()
+
+
+def cmd_adapt(args: list[str]) -> None:
+    """Generate platform-specific adapter files."""
+    from scripts.colors import green, red, yellow, cyan, bold
+
+    # Import all adapters to populate the registry
+    import adapters.claude_code
+    import adapters.minimax
+    import adapters.cursor
+    import adapters.copilot
+    import adapters.aider
+    import adapters.openai_agents
+    import adapters.langchain_adapter
+    import adapters.generic
+    from adapters.base import AVAILABLE_ADAPTERS
+
+    if not args or args[0] in ("-h", "--help", "help"):
+        print(bold("\nRSI Adapt — Generate platform-specific enforcement files\n"))
+        print("Usage: python3 scripts/rsi.py adapt <platform|all|list>\n")
+        print("Platforms:")
+        for pid, cls in sorted(AVAILABLE_ADAPTERS.items()):
+            a = cls()
+            enforcement = green("tool-layer") if a.supports_tool_enforcement else yellow("prompt-only")
+            print(f"  {cyan(pid.ljust(18))} {a.platform_name.ljust(28)} [{enforcement}]")
+        print(f"\n  {cyan('all'.ljust(18))} Generate files for all platforms")
+        print(f"  {cyan('list'.ljust(18))} List available platforms")
+        return
+
+    target = args[0]
+
+    if target == "list":
+        for pid, cls in sorted(AVAILABLE_ADAPTERS.items()):
+            a = cls()
+            print(f"  {pid}: {a.platform_name}")
+        return
+
+    if target == "all":
+        platforms = list(AVAILABLE_ADAPTERS.keys())
+    elif target in AVAILABLE_ADAPTERS:
+        platforms = [target]
+    else:
+        print(f"{red('Unknown platform:')} {target}")
+        print(f"Available: {', '.join(sorted(AVAILABLE_ADAPTERS.keys()))}")
+        sys.exit(1)
+
+    for pid in platforms:
+        adapter = AVAILABLE_ADAPTERS[pid](PROJECT_ROOT)
+        created = adapter.install()
+        print(f"\n{green(adapter.platform_name)}:")
+        for f in created:
+            print(f"  {green('+')} {f}")
+
+    print(f"\n{green('Done.')} Platform files generated.")
+
+
+COMMANDS = {
+    "init": (cmd_init, "Start a new session"),
+    "capture": (cmd_capture, "Module A: post-implementation capture"),
+    "review": (cmd_review, "Module B: self-feedback"),
+    "optimize": (cmd_optimize, "Module C: self-optimization"),
+    "loop": (cmd_loop, "Full A->B->C loop (with ceremony classification)"),
+    "verify": (cmd_verify, "Self-verification checks"),
+    "preflight": (cmd_preflight, "Pre-flight check (read before edit)"),
+    "ceremony": (cmd_ceremony, "Classify change scope / ceremony level"),
+    "dashboard": (cmd_dashboard, "Andon board — visual management"),
+    "backlog": (cmd_backlog, "Backlog management"),
+    "calibrate": (cmd_calibrate, "Proof-wrong calibration tracker"),
+    "root-cause": (cmd_root_cause, "5-Whys root cause analysis"),
+    "metrics": (cmd_metrics, "Metrics engine"),
+    "adapt": (cmd_adapt, "Generate platform-specific enforcement files"),
+    "ci": (cmd_ci, "CI gate checks"),
+    "setup": (cmd_setup, "One-time setup"),
+    "sync": (cmd_sync, "Framework sync / update"),
+    "status": (cmd_status, "Quick status overview"),
+}
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+        from scripts.colors import bold, cyan
+        print(bold("\nRSI Framework — Unified CLI\n"))
+        print("Usage: python3 scripts/rsi.py <command> [args...]\n")
+        print("Commands:")
+        for name, (_, desc) in sorted(COMMANDS.items()):
+            print(f"  {cyan(f'{name:<14}')} {desc}")
+        print(f"\nRun 'python3 scripts/rsi.py <command> --help' for command-specific help.")
+        sys.exit(0)
+
+    cmd_name = sys.argv[1]
+    cmd_args = sys.argv[2:]
+
+    if cmd_name in COMMANDS:
+        handler, _ = COMMANDS[cmd_name]
+        handler(cmd_args)
+    else:
+        print(f"Unknown command: {cmd_name}")
+        print(f"Run 'python3 scripts/rsi.py help' for available commands.")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -24,6 +24,17 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 RSI_FRAMEWORK_DIR = PROJECT_ROOT / "rsi-framework"
+
+# Detect if this script IS the framework (running from within rsi-framework/)
+# In that case, PROJECT_ROOT == framework root, not parent of rsi-framework/
+if not RSI_FRAMEWORK_DIR.exists():
+    # We're running from within the framework itself
+    if (PROJECT_ROOT / "FRAMEWORK.md").exists():
+        RSI_FRAMEWORK_DIR = PROJECT_ROOT
+    else:
+        # Neither rsi-framework/ subdir nor FRAMEWORK.md exists — framework not found
+        pass
+
 FRAMEWORK_MARKER = PROJECT_ROOT / ".memory" / ".framework_version"
 FEEDBACK_FILE = PROJECT_ROOT / ".memory" / "framework-feedback.md"
 FRAMEWORK_TEMPLATE_DIR = RSI_FRAMEWORK_DIR / "MEMORY_TEMPLATE"
@@ -52,7 +63,7 @@ def _extract_version_from_framework() -> tuple[str, Path]:
         return "unknown", framework_md
 
     content = framework_md.read_text()
-    match = re.search(r"Status:\s*v?(\d+\.\d+)", content)
+    match = re.search(r"\*\*?Status:\*\*?\s*v?(\d+\.\d+)", content, re.IGNORECASE)
     if match:
         return match.group(1), framework_md
     return "unknown", framework_md

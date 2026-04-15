@@ -7,7 +7,7 @@ Run this after EVERY code change before declaring success.
 Usage:
     python3 scripts/self_verify.py
     python3 scripts/self_verify.py --changed-only   # only check files modified since last commit
-    python3 scripts/self_verify.py --files src/wandering_codex/api/progression.py
+    python3 scripts/self_verify.py --files src/myapp/api/handler.py
 
 What it checks (pluggable by language):
 1. All modified/listed files pass language-specific syntax check
@@ -24,7 +24,6 @@ Language-agnostic design:
 - To add a checker: register in LANG_CHECKERS dict
 """
 
-import ast
 import ast
 import re
 import subprocess
@@ -115,7 +114,13 @@ class PythonChecker(LanguageChecker):
 
 
 class ShellChecker(LanguageChecker):
-    """Shell script syntax checker (bash -n)."""
+    """Shell script syntax checker.
+
+    Tries multiple backends for cross-platform compatibility:
+    1. shellcheck (if installed) — works on all platforms
+    2. bash -n — works on Linux/macOS/WSL/Git Bash
+    3. PowerShell Parse method — Windows fallback
+    """
 
     @property
     def name(self) -> str:
@@ -126,15 +131,64 @@ class ShellChecker(LanguageChecker):
         return [".sh", ".bash"]
 
     def check_syntax(self, file_path: Path) -> tuple[bool, str]:
-        result = subprocess.run(
-            ["bash", "-n", str(file_path)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return False, result.stderr.strip()
-        return True, ""
+        import shutil
+
+        # 1. Try shellcheck first (cross-platform)
+        if shutil.which("shellcheck"):
+            result = subprocess.run(
+                ["shellcheck", "-n", "-x", str(file_path)],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode != 0:
+                return False, result.stderr.strip() or "shellcheck failed"
+            return True, ""
+
+        # 2. Try bash -n (Linux/macOS/WSL/Git Bash)
+        if shutil.which("bash"):
+            result = subprocess.run(
+                ["bash", "-n", str(file_path)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return False, result.stderr.strip()
+            return True, ""
+
+        # 3. Windows fallback: PowerShell syntax check
+        if shutil.which("pwsh") or shutil.which("powershell"):
+            pwsh_cmd = "pwsh" if shutil.which("pwsh") else "powershell"
+            script_content = file_path.read_text()
+            ps_script = f'''
+$script = @'
+{script_content}
+'@
+$tokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseInput($script, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count -gt 0) {{
+    foreach ($err in $parseErrors) {{
+        Write-Error $err.Message
+    }}
+    exit 1
+}}
+exit 0
+'''
+            result = subprocess.run(
+                [pwsh_cmd, "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode != 0:
+                err = result.stderr.strip() or result.stdout.strip()
+                return False, err or "PowerShell parse failed"
+            return True, ""
+
+        # 4. No shell checker available
+        return False, "No shell checker available (install shellcheck, bash, or PowerShell)"
 
 
 class GenericTextChecker(LanguageChecker):
@@ -267,22 +321,20 @@ def find_placeholder_code(file_path: Path) -> List[str]:
 # To add project-specific checks, add entries to sanity_checks dict in main().
 # Default passes all files. Override per-filename as needed.
 
-def sanity_check_progression_py(file_path: Path) -> bool:
-    """EXAMPLE: progression.py should not have module-level supabase.create_client()."""
-    content = file_path.read_text()
-    issues = []
-    if "async def startup_event" not in content:
-        issues.append("No startup_event found")
-    lines = content.splitlines()
-    for i, line in enumerate(lines, 1):
-        if "create_client(SUPABASE_URL, SUPABASE_KEY)" in line:
-            window = "\n".join(lines[max(0, i - 10) : min(len(lines), i + 3)])
-            if "startup_event" not in window:
-                issues.append(f"create_client at module level at line {i}")
-    if issues:
-        for issue in issues:
-            print(f"        {red(issue)}")
-        return False
+def _example_sanity_check(file_path: Path) -> bool:
+    """EXAMPLE: Project-specific sanity check template.
+
+    Replace this with your own checks. For example:
+        def check_no_module_level_db(file_path):
+            content = file_path.read_text()
+            if "create_client(" in content and "def " not in content.split("create_client(")[0].split("\\n")[-1]:
+                print(f"        {red('DB client created at module level')}")
+                return False
+            return True
+
+    Then register it in the sanity_checks dict in main():
+        sanity_checks = {"my_file.py": check_no_module_level_db}
+    """
     return True
 
 
@@ -295,26 +347,32 @@ def scan_side_effects(file_path: Path) -> List[str]:
     content = file_path.read_text()
     findings = []
 
-    # Files that import from pipeline/
-    pipeline_imports = [
-        "from wandering_codex.pipeline",
-        "from .pipeline",
-        "import pipeline",
-    ]
-
-    if any(imp in content for imp in pipeline_imports):
-        # Check who else imports from pipeline
-        for py_file in SRC_ROOT.rglob("*.py"):
-            if py_file == file_path:
-                continue
-            try:
-                other_content = py_file.read_text()
-                for imp in pipeline_imports:
-                    if imp in other_content:
-                        findings.append(f"  {imp} also in {py_file.relative_to(PROJECT_ROOT)}")
-                        break
-            except Exception:
-                pass
+    # Find other files that import from the same package as this file.
+    # This catches side-effects: changing module X may break module Y if Y imports from X.
+    try:
+        rel = file_path.relative_to(PROJECT_ROOT)
+        parts = list(rel.parts)
+        if len(parts) >= 2:
+            package = parts[0]  # e.g., "src"
+            module_name = file_path.stem  # e.g., "auth"
+            import_patterns = [
+                f"from {package}",
+                f"import {module_name}",
+                f"from .{module_name}",
+            ]
+            for py_file in SRC_ROOT.rglob("*.py"):
+                if py_file == file_path:
+                    continue
+                try:
+                    other_content = py_file.read_text()
+                    for imp in import_patterns:
+                        if imp in other_content:
+                            findings.append(f"  {imp} also in {py_file.relative_to(PROJECT_ROOT)}")
+                            break
+                except Exception:
+                    pass
+    except (ValueError, IndexError):
+        pass
 
     return findings
 

@@ -62,7 +62,18 @@ def test_python_checker_syntax():
 
 def test_shell_checker_syntax():
     """ShellChecker detects valid and invalid shell syntax."""
+    import subprocess
     import scripts.self_verify as sv
+
+    # Test if bash actually works (not just exists — WSL shims can be broken)
+    try:
+        result = subprocess.run(["bash", "-c", "echo ok"], capture_output=True, text=True, timeout=5)
+        if result.returncode != 0 or "ok" not in result.stdout:
+            raise RuntimeError("bash not functional")
+    except (FileNotFoundError, RuntimeError, subprocess.TimeoutExpired):
+        import pytest
+        pytest.skip("bash not functional on this platform")
+
     checker = sv.ShellChecker()
 
     # Valid shell

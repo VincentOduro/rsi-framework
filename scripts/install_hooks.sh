@@ -1,5 +1,5 @@
 #!/bin/bash
-# install_hooks.sh — Install git hooks for Wandering Codex
+# install_hooks.sh — Install git hooks for RSI framework
 # Run once after cloning: bash scripts/install_hooks.sh
 
 set -e
@@ -9,7 +9,7 @@ cd "$PROJECT_ROOT"
 
 HOOKS_DIR="$PROJECT_ROOT/.git/hooks"
 
-echo "Installing git hooks for Wandering Codex..."
+echo "Installing git hooks for RSI framework..."
 echo ""
 
 for hook in scripts/git-hooks/*; do

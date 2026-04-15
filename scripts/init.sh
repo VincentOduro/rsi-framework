@@ -8,7 +8,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 echo "============================================================"
-echo "WANDERING CODEX — SESSION INITIALIZATION"
+echo "RSI FRAMEWORK — SESSION INITIALIZATION"
 echo "============================================================"
 echo ""
 
@@ -78,7 +78,6 @@ fi
 echo ""
 echo "============================================================"
 echo "Ready. Suggested next step:"
-echo "  python3 scripts/post_implementation.py --interactive"
-echo "  or"
-echo "  python3 scripts/review.sh"
+echo "  python3 scripts/rsi.py loop       # Full A->B->C loop"
+echo "  python3 scripts/rsi.py dashboard  # View andon board"
 echo "============================================================"

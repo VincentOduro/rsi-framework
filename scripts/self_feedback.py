@@ -12,7 +12,7 @@ What it does:
 
 Usage:
     python3 scripts/self_feedback.py
-    python3 scripts/self_feedback.py --task "H-2 fix" --files src/wandering_codex/api/progression.py
+    python3 scripts/self_feedback.py --task "auth fix" --files src/myapp/api/handler.py
 
 Note: This script is designed for interactive use. For CI contexts where
 interactive prompts are unavailable, run Module B via the non-interactive

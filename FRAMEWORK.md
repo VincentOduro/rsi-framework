@@ -2,7 +2,7 @@
 
 A lightweight meta-process for software projects that turns every implementation into a learning opportunity, and every learning opportunity into the next implementation's improvement.
 
-**Status:** v1.11 | **Language:** Agnostic | **Stack:** Python + Bash + Git
+**Status:** v1.13 | **Language:** Agnostic | **Stack:** Python + Bash + Git
 
 ---
 
@@ -389,6 +389,8 @@ The framework is language-agnostic. For a different stack:
 | 2026-04-15 | v1.9 | Added pre-commit Stage 0 session check (`--require-session`). Added `--start` to preflight_check.py. Documented Module B as interactive-only (CI uses non-interactive path). | Session enforcement gap from v1.8 proposal |
 | 2026-04-15 | v1.10 | Added markdown-based backlog system (`backlog.md` + `scripts/backlog.py`) with standard task format. Supports add/list/show/update/stats. | Consistent task tracking across all projects |
 | 2026-04-15 | v1.11 | Added framework_sync.py (file-copy update detection, self-update with backup, feedback capture). | Framework self-update + feedback mechanism |
+| 2026-04-15 | v1.12 | Added multi-model support: universal_hook.py + adapters/ for opencode/MiniMax. Fixed ShellChecker cross-platform (shellcheck → bash → PowerShell fallback). Fixed rsi.py _run/_run_bash to capture stderr on failure. | Claude-only hooks; ShellChecker required bash; rsi.py error messages not shown |
+| 2026-04-15 | v1.13 | Added session expiry warning (1 hour before TTL). Session status now shows time remaining. handle_pre_edit warns when session expiring soon. | Session TTL only blocked when expired, not warned when approaching expiry |
 
 ## Using FAIL-index
 
