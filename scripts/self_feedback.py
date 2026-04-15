@@ -26,6 +26,32 @@ MEMORY_ROOT = PROJECT_ROOT / ".memory"
 TECHNICAL_DIR = MEMORY_ROOT / "technical"
 AGENTS_DIR = MEMORY_ROOT / "agents"
 
+# =============================================================================
+# PROJECT-SPECIFIC BUG CHECKS
+# =============================================================================
+# Add project-specific checks here. These are excluded from the generic
+# bug_checks list below (MagicMock is the canonical example — tests use it,
+# but it appears everywhere in test code and is not a real bug).
+#
+# To add a project-specific check:
+#   1. Add the pattern to this list
+#   2. Remove it from the generic bug_checks list below
+# =============================================================================
+PROJECT_SPECIFIC_CHECKS = [
+    ("MagicMock", "MagicMock is used in tests — suppress unless this is production code"),
+]
+
+# =============================================================================
+# GENERIC BUG CHECKS (framework default)
+# =============================================================================
+# These apply to all Python projects. They are language-level patterns,
+# not project-specific semantics.
+#
+# If a check is too noisy for your project (e.g., "mutable default arg"
+# appears frequently in valid code), move it here and gate it behind a
+# project-specific filter rather than removing it entirely.
+# =============================================================================
+
 
 def green(msg: str) -> str:
     return f"\033[92m{msg}\033[0m"
@@ -114,9 +140,25 @@ def review_code(files: list[str]) -> list[dict]:
         content = path.read_text()
         lines = content.splitlines()
 
-        # Check for common bug patterns
+        # Check for project-specific patterns (suppressed unless in production code)
+        for keyword, _ in PROJECT_SPECIFIC_CHECKS:
+            for i, line in enumerate(lines, 1):
+                if keyword in line:
+                    stripped = line.strip()
+                    if stripped.startswith("#"):
+                        continue
+                    # Only flag if not in test files
+                    if "/test" not in file and "_test.py" not in file:
+                        findings.append({
+                            "description": f"PROJECT-SPECIFIC: {_}",
+                            "file": file,
+                            "line": i,
+                            "confirmed": False,
+                            "verification": f"Found: {line.strip()[:80]}",
+                        })
+
+        # Check for common bug patterns (framework-generic)
         bug_checks = [
-            ("MagicMock subscript", "MagicMock()[0] returns MagicMock, not real value — use MagicMock(data=[real_dict])"),
             (".data[0] without guard", "Accessing .data[0] without checking .data — IndexError if empty"),
             ("await inside list comprehension", "await in list comprehension doesn't work — use [await f() for f in xs] or gather()"),
             ("global without declaration", "global variable used without 'global' keyword in same function"),
