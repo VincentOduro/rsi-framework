@@ -135,27 +135,29 @@ def validate_task(task: dict) -> list[str]:
 # Worker system prompt
 # ---------------------------------------------------------------------------
 
-WORKER_SYSTEM_PROMPT = """You are a worker agent in the RSI framework.
+WORKER_SYSTEM_PROMPT = """You are a code worker. You receive a task and return JSON.
 
-ROLE: Implement code changes according to exact specifications.
+RESPONSE RULES (CRITICAL — violations cause rejection):
+1. Respond with ONLY a JSON object. Nothing else.
+2. Do NOT include <think> tags, commentary, markdown, or explanations.
+3. Do NOT wrap JSON in code fences.
+4. Do NOT use trailing commas.
+5. For multi-line code: use actual newlines inside JSON strings, not \\n escapes.
+6. Only modify files listed in files_to_modify.
 
-CRITICAL OUTPUT RULES:
-- Your ENTIRE response must be a single valid JSON object.
-- Do NOT include any text before or after the JSON.
-- Do NOT wrap the JSON in markdown code fences.
-- Do NOT include comments in the JSON.
-- Do NOT use trailing commas.
-- Escape all special characters in string values properly.
-- For multi-line code in "changes" values, use \\n for newlines.
+IMPORT RULES:
+- Check the provided file contents for EXACT import paths.
+- If the task says files_to_read includes "src/scoring/scorer.py" and it
+  contains "class BWBScorer", then import as "from src.scoring.scorer import BWBScorer".
+- Do NOT guess import paths. Use what you see in the provided files.
 
-RULES:
-1. Study the provided file contents before writing.
-2. Only modify files listed in files_to_modify.
-3. Follow acceptance criteria exactly. No unrequested features.
-4. Include a proof_wrong hypothesis.
+TESTING RULES:
+- If writing tests, import from the EXACT module path of the implementation.
+- Mock external dependencies only. Do NOT mock the function being tested.
+- Test actual behavior, not mock return values.
 
-RESPONSE FORMAT (respond with ONLY this JSON, nothing else):
-{"changes": {"path/to/file.py": "full file contents"}, "proof_wrong": "hypothesis", "notes": "brief notes"}"""
+RESPONSE FORMAT:
+{"changes": {"path/to/file.py": "full file contents"}, "proof_wrong": "specific hypothesis", "notes": "brief notes"}"""
 
 
 def build_worker_prompt(task: dict) -> str:
@@ -195,6 +197,12 @@ def _extract_json(raw: str) -> dict | None:
         return None
 
     text = raw.strip()
+
+    # Pre-processing: strip <think>...</think> tags (MiniMax reasoning output)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+    # Pre-processing: strip other common wrapper tags
+    text = re.sub(r"<output>|</output>|<response>|</response>", "", text).strip()
 
     # Attempt 1: Direct parse (cleanest case)
     try:
@@ -515,12 +523,30 @@ def write_review(task: dict, result: dict) -> Path:
 
 
 def apply_changes(task: dict, result: dict) -> list[str]:
-    """Apply worker changes to disk. Returns list of applied files."""
+    """Apply worker changes to disk. Returns list of applied files.
+
+    Handles MiniMax quirk: double-escaped newlines (\\\\n instead of \\n).
+    JSON requires \\n for newlines in strings, but MiniMax sometimes
+    double-escapes them, producing literal backslash-n in the output file.
+    """
     applied = []
     for filepath, content in result.get("changes", {}).items():
         full_path = PROJECT_ROOT / filepath
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content)
+
+        # Fix double-escaped newlines from MiniMax
+        # If content has literal \n but no actual newlines, unescape
+        if "\\n" in content and "\n" not in content:
+            content = content.replace("\\n", "\n")
+        # Also fix \\t -> \t if same pattern
+        if "\\t" in content and "\t" not in content:
+            content = content.replace("\\t", "\t")
+
+        # Ensure file ends with newline
+        if content and not content.endswith("\n"):
+            content += "\n"
+
+        full_path.write_text(content, encoding="utf-8")
         applied.append(filepath)
     return applied
 

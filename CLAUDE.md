@@ -383,6 +383,25 @@ You synthesize into a unified report. Do NOT spawn Claude subagents for this.
 problem. Break the task smaller. Retry with a clearer spec. Only after 3
 failed attempts on the SAME single-file subtask may you create an override.
 
+### Writing Good Task Specs (lessons from production)
+
+1. **One file per task.** Multi-file tasks cause syntax errors. If you need
+   to change 3 files, write 3 task specs.
+
+2. **Include import paths explicitly.** In the instruction field, state the
+   exact import path: "Import LowVolScorer from nyquist.scoring.low_vol_scorer".
+   MiniMax guesses wrong if you don't.
+
+3. **For tests: reference the implementation file.** Put the implementation
+   file in files_to_read so MiniMax sees the actual signatures and classes.
+   Tests written without seeing the implementation will have mock mismatches.
+
+4. **Keep instructions under 500 words.** Long specs cause MiniMax to emit
+   `<think>` tags instead of JSON. Be precise, not verbose.
+
+5. **Acceptance criteria must be testable.** Not "code is clean" but
+   "function returns float between 0 and 1" or "raises ValueError on negative input".
+
 ### Rules
 
 1. **Always check MINIMAX_API_KEY first.** If not set, handle everything yourself.

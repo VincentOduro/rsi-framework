@@ -109,3 +109,69 @@ def test_json_with_newlines_in_code():
     result = _extract_json(raw)
     assert result is not None
     assert "\\n" in result["changes"]["test.py"] or "\n" in result["changes"]["test.py"]
+
+
+def test_think_tags_stripped():
+    """MiniMax sometimes wraps output in <think>...</think> reasoning tags."""
+    raw = '<think>Let me analyze the task...\nI need to implement X.\n</think>\n{"changes": {"test.py": "x = 1"}, "proof_wrong": "test", "notes": ""}'
+    result = _extract_json(raw)
+    assert result is not None
+    assert result["changes"]["test.py"] == "x = 1"
+
+
+def test_think_tags_multiline():
+    raw = """<think>
+This is a complex task.
+I need to:
+1. Read the file
+2. Implement changes
+3. Return JSON
+</think>
+{"changes": {"api.py": "def handler(): pass"}, "proof_wrong": "might fail", "notes": "done"}"""
+    result = _extract_json(raw)
+    assert result is not None
+    assert "api.py" in result["changes"]
+
+
+def test_think_tags_with_json_inside():
+    """Think tags containing JSON-like text shouldn't confuse the parser."""
+    raw = """<think>I could return {"bad": true} but I won't</think>
+{"changes": {"real.py": "real code"}, "proof_wrong": "test", "notes": ""}"""
+    result = _extract_json(raw)
+    assert result is not None
+    assert "real.py" in result["changes"]
+
+
+def test_apply_changes_unescapes_newlines(tmp_path):
+    """apply_changes should convert literal \\n to actual newlines."""
+    import scripts.delegate as d
+    old_root = d.PROJECT_ROOT
+    d.PROJECT_ROOT = tmp_path
+
+    task = {"id": "TEST", "files_to_modify": ["output.py"]}
+    result = {"changes": {"output.py": "line1\\nline2\\nline3"}}
+    applied = d.apply_changes(task, result)
+
+    content = (tmp_path / "output.py").read_text()
+    assert "\n" in content
+    assert "line1" in content
+    assert "line2" in content
+    assert content.endswith("\n")
+
+    d.PROJECT_ROOT = old_root
+
+
+def test_apply_changes_preserves_real_newlines(tmp_path):
+    """apply_changes should not double-process content with real newlines."""
+    import scripts.delegate as d
+    old_root = d.PROJECT_ROOT
+    d.PROJECT_ROOT = tmp_path
+
+    task = {"id": "TEST", "files_to_modify": ["good.py"]}
+    result = {"changes": {"good.py": "line1\nline2\nline3\n"}}
+    applied = d.apply_changes(task, result)
+
+    content = (tmp_path / "good.py").read_text()
+    assert content == "line1\nline2\nline3\n"
+
+    d.PROJECT_ROOT = old_root
