@@ -275,12 +275,16 @@ Delegatable (MUST send to worker):
 - Any bulk work that touches multiple files
 - Any implementation in files the worker can modify
 
-NOT delegatable (handle yourself):
-- Architecture decisions and planning
+NOT delegatable (the ONLY things you handle directly):
 - Modifying constitution files (CLAUDE.md, .rsi/**, scripts/hooks.py, scripts/delegate.py)
 - Reviewing and accepting/rejecting worker output
-- Task decomposition itself
+- Task decomposition (writing the task spec JSON)
 - Final synthesis and reporting to the user
+
+Everything else — ALL code, ALL tests, ALL docs, ALL analysis, ALL audits,
+ALL refactoring — goes to the worker. "Architecture decisions" is NOT an
+excuse to write code yourself. You DECIDE the architecture, then DELEGATE
+the implementation.
 
 **Step 2: Decompose into subtasks.** For each delegatable subtask, write a task spec:
 
@@ -335,8 +339,9 @@ python3 scripts/rsi.py review-queue revise TASK-NNN --instruction "Fix the edge 
 python3 scripts/rsi.py review-queue reject TASK-NNN --reason "Wrong approach entirely"
 ```
 
-**Step 6: Handle overlord-only subtasks yourself.** Architecture decisions,
-constitution file changes, final integration — do these directly.
+**Step 6: Handle constitution-only subtasks yourself.** Only constitution
+file edits (CLAUDE.md, .rsi/**, scripts/hooks.py, scripts/delegate.py).
+Nothing else. Architecture decisions are inputs to task specs, not code.
 
 **Step 7: Run the A→B→C loop** on all changes (worker + overlord combined).
 
@@ -353,15 +358,30 @@ constitution file changes, final integration — do these directly.
 | "Review all error handling" | **Delegate** | Worker reviews files, overlord judges |
 | "Update CLAUDE.md" | Overlord only | Constitution file |
 | "What does this function do?" | Overlord only | Question, not work |
-| "Fix a typo in README" | Overlord only | Too small to delegate (< 5 min) |
+| "Fix a typo in README" | **Delegate** | Non-constitution .md = open file |
+| "Fix a critical trading bug" | **Delegate** | Safety-critical is NOT an excuse |
+| "Fix 18 bugs across 12 files" | **Delegate** | Decompose into 18 single-fix tasks |
 
-**Default: DELEGATE.** If unsure whether to delegate, delegate. The only
-reason to handle directly is: constitution files, pure questions, or trivially
-small changes. Everything else goes to the worker.
+**Default: DELEGATE.** If unsure whether to delegate, DELEGATE.
+
+The ONLY reason to handle directly is:
+1. The file is constitution-level (check with `rsi.py classify`)
+2. It's a pure question (no files touched)
+
+There is NO "too small to delegate" exception. There is NO "safety-critical"
+exception. There is NO "it's faster if I do it" exception. The hook will
+block you anyway — don't rationalize, just delegate.
+
+**No task is too critical for MiniMax.** A reviewed MiniMax fix is safer
+than an unreviewed overlord fix. Your job is to review, not implement.
 
 **For audits specifically:** Decompose by file or module. Each subtask = "audit
 src/X.py for [security|quality|performance]". Worker returns findings as JSON.
 You synthesize into a unified report. Do NOT spawn Claude subagents for this.
+
+**When MiniMax fails:** That is a decomposition problem, not a capability
+problem. Break the task smaller. Retry with a clearer spec. Only after 3
+failed attempts on the SAME single-file subtask may you create an override.
 
 ### Rules
 
@@ -375,8 +395,10 @@ You synthesize into a unified report. Do NOT spawn Claude subagents for this.
    python3 scripts/rsi.py review-queue list
    ```
 
-4. **Max 3 revision cycles.** If the worker can't get it right in 3 attempts,
-   handle it yourself. The task decomposition was too vague.
+4. **Max 3 revision cycles per subtask.** If the worker can't get it right
+   in 3 attempts, the task is too complex. Break it into smaller subtasks
+   and re-delegate. Do NOT take over and implement directly — use
+   `rsi.py override` if you genuinely must, and document why.
 
 5. **Worker output is not trusted.** Always review. Always verify. Always run
    the A→B→C loop after accepting changes.
