@@ -2,7 +2,7 @@
 
 A lightweight meta-process for software projects that turns every implementation into a learning opportunity, and every learning opportunity into the next implementation's improvement.
 
-**Status:** v1.7 | **Language:** Agnostic | **Stack:** Python + Bash + Git
+**Status:** v1.8 | **Language:** Agnostic | **Stack:** Python + Bash + Git
 
 ---
 
@@ -382,6 +382,46 @@ The framework is language-agnostic. For a different stack:
 | 2026-04-15 | v1.5 | Added `setup.py` (pure Python cross-platform), `setup.ps1` (PowerShell), fixed `readlink -f` → `os.path.realpath()` in hooks | P0 fixes for Windows compatibility |
 | 2026-04-15 | v1.6 | Fixed hardcoded `/home/ajeem/wandering_codex` paths in self_feedback.py, self_optimization.py, post_implementation.py | 3 of 5 scripts had hardcoded paths |
 | 2026-04-15 | v1.7 | Added 24h session expiry (RSI_SESSION_TTL_HOURS), --fresh flag to skip auto-seeding. Added PROOF_WRONG_GUIDE.md with examples by change type. Moved MagicMock-specific checks to PROJECT_SPECIFIC_CHECKS. | P1-1, P1-3, P2-1, P2-2, P2-3 |
+| 2026-04-15 | v1.8 | Added pluggable LanguageChecker architecture to self_verify.py. Added FAIL-index usage guide to FRAMEWORK.md. Expanded framework self-tests. | P3-1, P3-2, P3-3 |
+
+## Using FAIL-index
+
+The FAIL-index is the shared vocabulary for behavioral failure modes. It lives in `.memory/technical/FAIL-index.md` and is the most underused part of the framework.
+
+**The key insight:** Instead of writing "record matching on subset of key fields" in every code review, you write `FAIL-004`. One citation communicates the full failure mode, its root cause, and the preventive rule.
+
+**When to cite:**
+- During Module B (self-feedback review): "This code is vulnerable to FAIL-004"
+- In commit messages: `fix: add missing unique constraint — prevents FAIL-004`
+- In code comments: `# FAIL-007: Must read entire file before modifying`
+- In task descriptions: `Review: Check if FAIL-008 applies to this change`
+
+**How to cite in practice:**
+
+```
+## Review Comment
+
+This upsert logic has a race condition — FAIL-004.
+If process A reads the row between process B's check and insert,
+we'd get a duplicate key violation.
+
+[FAIL-004]: Record matching on subset of key fields.
+  → Fix: Use SELECT FOR UPDATE or a unique constraint.
+```
+
+**When to add new entries:**
+
+When a failure recurs but doesn't match an existing FAIL ID:
+1. Add the ID: next sequential number
+2. Short name: what went wrong (not the rule)
+3. Preventive rule: what should have prevented it
+
+Example new entry:
+```
+| FAIL-010 | Committing without reviewing hook output | Always read the full commit-msg hook output before the commit completes |
+```
+
+---
 
 ### Known limitations
 
