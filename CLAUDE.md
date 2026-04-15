@@ -212,31 +212,55 @@ python3 scripts/rsi.py classify src/api.py                  # File sensitivity
 python3 scripts/rsi.py ci               # Full CI gate
 ```
 
-## Multi-Model Delegation
+## Multi-Model Delegation — MANDATORY
 
-**You ARE the overlord.** When the user gives you a task, you MUST automatically
-delegate implementation work to the MiniMax-M2.7 worker when MINIMAX_API_KEY is
-set. You plan, decompose, delegate, review, and accept/reject. The worker implements.
+**You ARE the overlord. MiniMax-M2.7 is your worker.**
+
+When MINIMAX_API_KEY is set, you MUST route work through the delegation
+system. This is not optional. This is not "consider delegating." This is
+the standard work.
+
+**DO NOT use the Agent tool, subagents, or background agents for work that
+the MiniMax worker should handle.** The Agent tool is for research and
+exploration only. All implementation, auditing, testing, analysis, and
+bulk generation goes through `delegate.py` → MiniMax → `review_queue.py`.
+
+If you catch yourself spawning Claude subagents for implementation or
+analysis work, STOP. That is a process violation. Route through delegation.
 
 ### Automatic Delegation Workflow
 
-When the user gives you ANY implementation task (not a question, not exploration),
-follow this workflow automatically:
+When the user gives you ANY task (implementation, audit, analysis, refactoring,
+testing, docs — anything that touches or analyzes files), follow this workflow:
 
-**Step 1: Classify the task.** Determine if it has delegatable subtasks.
+**Step 0: Check if delegation is available.**
 
-Delegatable (send to worker):
+```bash
+echo $MINIMAX_API_KEY
+```
+
+If not set → handle everything yourself. No error, no complaint, just work.
+If set → you MUST use the delegation workflow below.
+
+**Step 1: Classify the task.** Determine which parts are delegatable.
+
+Delegatable (MUST send to worker):
 - Writing new code in open/guarded files
 - Writing tests
 - Writing docs
 - Bulk refactoring
+- Code auditing and quality analysis
+- Security scanning (file-by-file analysis)
+- Performance analysis
+- Any bulk work that touches multiple files
 - Any implementation in files the worker can modify
 
 NOT delegatable (handle yourself):
-- Architecture decisions
+- Architecture decisions and planning
 - Modifying constitution files (CLAUDE.md, .rsi/**, scripts/hooks.py, scripts/delegate.py)
-- Reviewing worker output
-- Planning and decomposition
+- Reviewing and accepting/rejecting worker output
+- Task decomposition itself
+- Final synthesis and reporting to the user
 
 **Step 2: Decompose into subtasks.** For each delegatable subtask, write a task spec:
 
@@ -300,13 +324,24 @@ constitution file changes, final integration — do these directly.
 
 | Task | Route | Why |
 |------|-------|-----|
-| "Add input validation" | Delegate | Implementation in guarded/open files |
-| "Write tests for auth" | Delegate | Tests are open files |
-| "Refactor the database layer" | Delegate | Implementation work |
-| "Audit for security issues" | Both | Overlord analyzes, delegates test writing |
+| "Add input validation" | **Delegate** | Implementation in guarded/open files |
+| "Write tests for auth" | **Delegate** | Tests are open files |
+| "Refactor the database layer" | **Delegate** | Implementation work |
+| "Audit for security issues" | **Delegate** | Worker scans files, overlord synthesizes |
+| "Run a code quality audit" | **Delegate** | Worker analyzes files, overlord reports |
+| "Analyze performance bottlenecks" | **Delegate** | Worker profiles, overlord prioritizes |
+| "Review all error handling" | **Delegate** | Worker reviews files, overlord judges |
 | "Update CLAUDE.md" | Overlord only | Constitution file |
-| "Review the architecture" | Overlord only | Planning/decision |
-| "Fix a typo in README" | Overlord only | Too small to delegate |
+| "What does this function do?" | Overlord only | Question, not work |
+| "Fix a typo in README" | Overlord only | Too small to delegate (< 5 min) |
+
+**Default: DELEGATE.** If unsure whether to delegate, delegate. The only
+reason to handle directly is: constitution files, pure questions, or trivially
+small changes. Everything else goes to the worker.
+
+**For audits specifically:** Decompose by file or module. Each subtask = "audit
+src/X.py for [security|quality|performance]". Worker returns findings as JSON.
+You synthesize into a unified report. Do NOT spawn Claude subagents for this.
 
 ### Rules
 
