@@ -183,14 +183,14 @@ def decompose_task(task_description: str, project_context: str) -> dict:
 
     raw = response.content[0].text
 
-    # Extract JSON
-    json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL)
-    json_str = json_match.group(1) if json_match else raw
+    # Robust JSON extraction
+    from scripts.delegate import _extract_json
+    parsed = _extract_json(raw)
+    if parsed is not None and "subtasks" in parsed:
+        return parsed
 
-    try:
-        return json.loads(json_str.strip())
-    except json.JSONDecodeError:
-        # Fallback: single overlord-only task
+    # Fallback: single overlord-only task
+    if True:
         return {
             "plan": "Could not decompose — treating as single overlord task",
             "subtasks": [{
@@ -264,13 +264,11 @@ def review_worker_output(subtask: dict, result: dict) -> dict:
     )
 
     raw = response.content[0].text
-    json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL)
-    json_str = json_match.group(1) if json_match else raw
-
-    try:
-        return json.loads(json_str.strip())
-    except json.JSONDecodeError:
-        return {"decision": "accept", "feedback": raw[:500], "issues": [], "proof_wrong_quality": 50}
+    from scripts.delegate import _extract_json
+    parsed = _extract_json(raw)
+    if parsed is not None and "decision" in parsed:
+        return parsed
+    return {"decision": "accept", "feedback": raw[:500], "issues": [], "proof_wrong_quality": 50}
 
 
 # ---------------------------------------------------------------------------
@@ -323,13 +321,11 @@ def execute_overlord_task(subtask: dict) -> dict:
     )
 
     raw = response.content[0].text
-    json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL)
-    json_str = json_match.group(1) if json_match else raw
-
-    try:
-        return json.loads(json_str.strip())
-    except json.JSONDecodeError:
-        return {"analysis": raw[:2000], "changes": {}, "recommendations": [], "proof_wrong": ""}
+    from scripts.delegate import _extract_json
+    parsed = _extract_json(raw)
+    if parsed is not None:
+        return parsed
+    return {"analysis": raw[:2000], "changes": {}, "recommendations": [], "proof_wrong": ""}
 
 
 # ---------------------------------------------------------------------------

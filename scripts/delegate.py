@@ -135,26 +135,27 @@ def validate_task(task: dict) -> list[str]:
 # Worker system prompt
 # ---------------------------------------------------------------------------
 
-WORKER_SYSTEM_PROMPT = """You are a worker agent in the RSI framework operating under Toyota Production System discipline.
+WORKER_SYSTEM_PROMPT = """You are a worker agent in the RSI framework.
 
-ROLE: You implement code changes according to exact specifications. You do not make architectural decisions. You do not modify files outside your task scope.
+ROLE: Implement code changes according to exact specifications.
+
+CRITICAL OUTPUT RULES:
+- Your ENTIRE response must be a single valid JSON object.
+- Do NOT include any text before or after the JSON.
+- Do NOT wrap the JSON in markdown code fences.
+- Do NOT include comments in the JSON.
+- Do NOT use trailing commas.
+- Escape all special characters in string values properly.
+- For multi-line code in "changes" values, use \\n for newlines.
 
 RULES:
-1. You have been given the contents of all files you need to read. Study them before writing.
-2. Only modify files listed in files_to_modify. Touching anything else is a violation.
-3. Follow the acceptance criteria exactly. Do not add unrequested features.
-4. Include a proof-wrong hypothesis for each change you make.
-5. Respond with ONLY a JSON object. No commentary, no markdown fences.
+1. Study the provided file contents before writing.
+2. Only modify files listed in files_to_modify.
+3. Follow acceptance criteria exactly. No unrequested features.
+4. Include a proof_wrong hypothesis.
 
-RESPONSE FORMAT:
-{
-    "changes": {
-        "path/to/file.py": "full file contents here",
-        "tests/test_file.py": "full file contents here"
-    },
-    "proof_wrong": "your hypothesis about what could invalidate this implementation",
-    "notes": "brief implementation notes if needed"
-}"""
+RESPONSE FORMAT (respond with ONLY this JSON, nothing else):
+{"changes": {"path/to/file.py": "full file contents"}, "proof_wrong": "hypothesis", "notes": "brief notes"}"""
 
 
 def build_worker_prompt(task: dict) -> str:
@@ -172,6 +173,221 @@ def build_worker_prompt(task: dict) -> str:
             parts.append(f'<file path="{filepath}">\n(file not found)\n</file>\n')
 
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Robust JSON extraction from LLM output
+# ---------------------------------------------------------------------------
+
+def _extract_json(raw: str) -> dict | None:
+    """Extract a JSON object from messy LLM output.
+
+    Handles:
+    - Clean JSON
+    - JSON wrapped in ```json ... ``` fences
+    - JSON with commentary before/after
+    - JSON with trailing commas
+    - JSON inside <json> tags or similar markup
+    - Multiple JSON blocks (takes the largest)
+    - Truncated JSON (attempts brace repair)
+    """
+    if not raw or not raw.strip():
+        return None
+
+    text = raw.strip()
+
+    # Attempt 1: Direct parse (cleanest case)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt 2: Extract from markdown code fences
+    fence_patterns = [
+        r"```(?:json)?\s*\n(.*?)\n\s*```",   # ```json ... ```
+        r"```\s*\n?(.*?)\n?\s*```",            # ``` ... ```
+    ]
+    for pattern in fence_patterns:
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1).strip())
+            except json.JSONDecodeError:
+                # Try cleaning the extracted content
+                cleaned = _clean_json_string(match.group(1).strip())
+                if cleaned:
+                    return cleaned
+
+    # Attempt 3: Extract from XML-like tags
+    tag_patterns = [
+        r"<json>(.*?)</json>",
+        r"<response>(.*?)</response>",
+        r"<output>(.*?)</output>",
+    ]
+    for pattern in tag_patterns:
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1).strip())
+            except json.JSONDecodeError:
+                pass
+
+    # Attempt 4: Find the largest {...} block by brace matching
+    result = _find_json_object(text)
+    if result is not None:
+        return result
+
+    # Attempt 5: Try cleaning common issues and re-parsing
+    cleaned = _clean_json_string(text)
+    if cleaned is not None:
+        return cleaned
+
+    return None
+
+
+def _find_json_object(text: str) -> dict | None:
+    """Find the largest valid JSON object in text using brace matching."""
+    candidates = []
+    i = 0
+    while i < len(text):
+        if text[i] == '{':
+            depth = 0
+            in_string = False
+            escape = False
+            j = i
+            while j < len(text):
+                c = text[j]
+                if escape:
+                    escape = False
+                elif c == '\\' and in_string:
+                    escape = True
+                elif c == '"' and not escape:
+                    in_string = not in_string
+                elif not in_string:
+                    if c == '{':
+                        depth += 1
+                    elif c == '}':
+                        depth -= 1
+                        if depth == 0:
+                            candidate = text[i:j+1]
+                            try:
+                                parsed = json.loads(candidate)
+                                if isinstance(parsed, dict):
+                                    candidates.append(parsed)
+                            except json.JSONDecodeError:
+                                # Try cleaning
+                                cleaned = _clean_json_string(candidate)
+                                if cleaned is not None:
+                                    candidates.append(cleaned)
+                            break
+                j += 1
+        i += 1
+
+    # Always try brace repair on the full text first — catches truncated outer objects
+    # that _find_json_object misses because inner objects match first
+    start = text.find('{')
+    if start >= 0:
+        fragment = text[start:]
+        repaired = _repair_truncated_json(fragment)
+        if repaired is not None and ("changes" in repaired or "proof_wrong" in repaired):
+            return repaired
+
+    if not candidates:
+        return None
+
+    # Return the candidate with "changes" key, or the largest one
+    for c in candidates:
+        if "changes" in c:
+            return c
+    return max(candidates, key=lambda x: len(str(x)))
+
+
+def _clean_json_string(text: str) -> dict | None:
+    """Fix common JSON issues and attempt to parse."""
+    s = text.strip()
+
+    # Remove leading/trailing non-JSON content
+    start = s.find('{')
+    end = s.rfind('}')
+    if start >= 0 and end > start:
+        s = s[start:end+1]
+
+    # Fix trailing commas before } or ]
+    s = re.sub(r',\s*([}\]])', r'\1', s)
+
+    # Fix single quotes used instead of double quotes (risky but common)
+    # Only do this if double-quote parse fails first
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+
+    # Try replacing single quotes with double quotes
+    # (only outside of already-double-quoted strings)
+    try:
+        # Simple heuristic: if no double quotes exist, swap singles
+        if '"' not in s:
+            s2 = s.replace("'", '"')
+            return json.loads(s2)
+    except json.JSONDecodeError:
+        pass
+
+    # Remove control characters that break JSON
+    s = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', s)
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+
+    return None
+
+
+def _repair_truncated_json(fragment: str) -> dict | None:
+    """Attempt to repair truncated JSON by closing braces/brackets."""
+    s = fragment.rstrip()
+
+    # Count unmatched braces
+    depth_brace = 0
+    depth_bracket = 0
+    in_string = False
+    escape = False
+
+    for c in s:
+        if escape:
+            escape = False
+            continue
+        if c == '\\' and in_string:
+            escape = True
+            continue
+        if c == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if c == '{': depth_brace += 1
+        elif c == '}': depth_brace -= 1
+        elif c == '[': depth_bracket += 1
+        elif c == ']': depth_bracket -= 1
+
+    # Close any unclosed strings
+    if in_string:
+        s += '"'
+
+    # Remove trailing comma
+    s = re.sub(r',\s*$', '', s)
+
+    # Close brackets then braces
+    s += ']' * max(0, depth_bracket)
+    s += '}' * max(0, depth_brace)
+
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -224,17 +440,10 @@ def call_worker(task: dict, revision_instruction: str = "") -> dict:
         if hasattr(response, "usage") and response.usage:
             tokens = (response.usage.prompt_tokens or 0) + (response.usage.completion_tokens or 0)
 
-        # Parse response JSON (worker should return raw JSON, no markdown fences)
-        clean = raw.strip()
-        # Strip markdown fences if worker wrapped it anyway
-        fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", clean, re.DOTALL)
-        if fence_match:
-            clean = fence_match.group(1).strip()
-
-        try:
-            parsed = json.loads(clean)
-        except json.JSONDecodeError:
-            return {"error": f"Worker returned invalid JSON", "raw_response": raw[:2000], "latency_seconds": latency}
+        # Robust JSON extraction — handles all common LLM output quirks
+        parsed = _extract_json(raw)
+        if parsed is None:
+            return {"error": f"Worker returned invalid JSON. Raw (first 500 chars): {raw[:500]}", "raw_response": raw[:2000], "latency_seconds": latency}
 
         # Validate: only files_to_modify appear in changes
         allowed = set(task.get("files_to_modify", []))
