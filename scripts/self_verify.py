@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-self_verify.py — Post-implementation self-verification for Wandering Codex.
+self_verify.py — Post-implementation self-verification (language-agnostic).
 
 Run this after EVERY code change before declaring success.
 
@@ -9,20 +9,27 @@ Usage:
     python3 scripts/self_verify.py --changed-only   # only check files modified since last commit
     python3 scripts/self_verify.py --files src/wandering_codex/api/progression.py
 
-What it checks:
-1. All modified/listed files import cleanly (no ImportError, no AttributeError)
-2. Changed functions/methods actually exist in the source
-3. No placeholder code (TODO, pass, NotImplementedError, raise NotImplemented)
-4. Tests pass (pytest)
-5. Specific sanity checks per changed file
-6. Side-effect scan: what else might this change break?
+What it checks (pluggable by language):
+1. All modified/listed files pass language-specific syntax check
+2. No placeholder code (generic — works on any text file)
+3. Tests pass (pytest — Python only, use --skip-tests for non-Python projects)
+4. Specific sanity checks per changed file (project-specific)
+5. Side-effect scan (project-specific)
 
 Anti-spoliation: if any check fails, the script exits non-zero.
+
+Language-agnostic design:
+- Each language has a LanguageChecker plug-in
+- Default checkers: Python (.py), Shell (.sh), Generic text (all others)
+- To add a checker: register in LANG_CHECKERS dict
 """
 
 import ast
+import ast
+import re
 import subprocess
 import sys
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Optional, Set
 
@@ -35,6 +42,145 @@ SRC_ROOT = PROJECT_ROOT / "src"
 TEST_ROOT = PROJECT_ROOT / "tests"
 
 PLACEHOLDER_PATTERNS = ["# TODO", "raise NotImplementedError", "pass  #", "...  # noqa"]
+
+
+# ---------------------------------------------------------------------------
+# Language Checker Plugin System
+# ---------------------------------------------------------------------------
+
+class LanguageChecker(ABC):
+    """Abstract base for language-specific verification plugins."""
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Human-readable name for this language."""
+        pass
+
+    @property
+    def extensions(self) -> List[str]:
+        """File extensions this checker handles. E.g., ['.py', '.pyx']"""
+        return []
+
+    @property
+    def test_extensions(self) -> List[str]:
+        """File extensions that are test files for this language."""
+        return []
+
+    @abstractmethod
+    def check_syntax(self, file_path: Path) -> tuple[bool, str]:
+        """Check syntax/parseability. Returns (ok, error_detail)."""
+        pass
+
+    def check_sanity(self, file_path: Path) -> tuple[bool, str]:
+        """Optional sanity check. Returns (ok, detail). Override per-project."""
+        return True, ""
+
+
+class PythonChecker(LanguageChecker):
+    """Python syntax and import checker."""
+
+    @property
+    def name(self) -> str:
+        return "Python"
+
+    @property
+    def extensions(self) -> List[str]:
+        return [".py", ".pyx", ".pxd"]
+
+    @property
+    def test_extensions(self) -> List[str]:
+        return ["_test.py", "_tests.py"]
+
+    def check_syntax(self, file_path: Path) -> tuple[bool, str]:
+        try:
+            ast.parse(file_path.read_text())
+            return True, ""
+        except SyntaxError as e:
+            return False, f"SyntaxError: {e}"
+
+    def check_sanity(self, file_path: Path) -> tuple[bool, str]:
+        rel = file_path.relative_to(PROJECT_ROOT)
+        module = str(rel).replace("/", ".").replace(".py", "")
+        result = subprocess.run(
+            [sys.executable, "-c", f"import {module}"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            return False, result.stderr.strip().split("\n")[-1]
+        return True, ""
+
+
+class ShellChecker(LanguageChecker):
+    """Shell script syntax checker (bash -n)."""
+
+    @property
+    def name(self) -> str:
+        return "Shell"
+
+    @property
+    def extensions(self) -> List[str]:
+        return [".sh", ".bash"]
+
+    def check_syntax(self, file_path: Path) -> tuple[bool, str]:
+        result = subprocess.run(
+            ["bash", "-n", str(file_path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return False, result.stderr.strip()
+        return True, ""
+
+
+class GenericTextChecker(LanguageChecker):
+    """Fallback checker for unknown file types. Checks nothing by default."""
+
+    @property
+    def name(self) -> str:
+        return "Text"
+
+    @property
+    def extensions(self) -> List[str]:
+        return []  # Matches nothing; used as fallback only
+
+    def check_syntax(self, file_path: Path) -> tuple[bool, str]:
+        try:
+            file_path.read_text()
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+
+
+# ---------------------------------------------------------------------------
+# Language Checker Registry
+# ---------------------------------------------------------------------------
+
+LANG_CHECKERS: List[LanguageChecker] = [
+    PythonChecker(),
+    ShellChecker(),
+    GenericTextChecker(),
+]
+
+
+def get_checker_for(file_path: Path) -> LanguageChecker:
+    """Return the appropriate language checker for a file."""
+    for checker in LANG_CHECKERS:
+        if file_path.suffix in checker.extensions:
+            return checker
+    return GenericTextChecker()
+
+
+def is_test_file(file_path: Path) -> bool:
+    """Return True if file looks like a test file."""
+    for checker in LANG_CHECKERS:
+        if file_path.suffix in checker.test_extensions:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -115,96 +261,11 @@ def find_placeholder_code(file_path: Path) -> List[str]:
     return issues
 
 
-def check_imports_clean(file_path: Path) -> bool:
-    """Verify a Python file can be imported without errors."""
-    if file_path.suffix != ".py":
-        return True
-    rel = file_path.relative_to(PROJECT_ROOT)
-    module = str(rel).replace("/", ".").replace(".py", "")
-    result = subprocess.run(
-        [sys.executable, "-c", f"import {module}"],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
-    return result.returncode == 0
-
-
-def check_import_error_detail(file_path: Path) -> str:
-    """Return the import error detail if any."""
-    if file_path.suffix != ".py":
-        return ""
-    rel = file_path.relative_to(PROJECT_ROOT)
-    module = str(rel).replace("/", ".").replace(".py", "")
-    result = subprocess.run(
-        [sys.executable, "-c", f"import {module}"],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
-    if result.returncode != 0:
-        return result.stderr.strip().split("\n")[-1]
-    return ""
-
-
-def find_functions_defined(file_path: Path) -> Set[str]:
-    """Return set of top-level function names defined in a file."""
-    if file_path.suffix != ".py":
-        return set()
-    try:
-        tree = ast.parse(file_path.read_text())
-    except SyntaxError:
-        return set()
-    return {
-        node.name
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-
-
-def find_classes_defined(file_path: Path) -> Set[str]:
-    """Return set of top-level class names defined in a file."""
-    if file_path.suffix != ".py":
-        return set()
-    try:
-        tree = ast.parse(file_path.read_text())
-    except SyntaxError:
-        return set()
-    return {
-        node.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ClassDef)
-    }
-
-
-def check_method_in_class(file_path: Path, class_name: str, method_name: str) -> bool:
-    """Check if a method exists in a class defined in file."""
-    if file_path.suffix != ".py":
-        return True
-    try:
-        tree = ast.parse(file_path.read_text())
-    except SyntaxError:
-        return False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == class_name:
-            for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == method_name:
-                    return True
-    return False
-
-
 # ---------------------------------------------------------------------------
 # File-specific sanity checks
 # ---------------------------------------------------------------------------
-# To add project-specific checks, add entries to sanity_checks dict below.
+# To add project-specific checks, add entries to sanity_checks dict in main().
 # Default passes all files. Override per-filename as needed.
-
-def sanity_check_default(file_path: Path) -> bool:
-    """Default sanity check — always passes. Replace with project-specific checks."""
-    return True
-
 
 def sanity_check_progression_py(file_path: Path) -> bool:
     """EXAMPLE: progression.py should not have module-level supabase.create_client()."""
@@ -284,22 +345,34 @@ def run_tests() -> bool:
     return result.returncode == 0
 
 
-def verify_file(file_path: Path, check_func=None) -> bool:
-    """Run all checks on a single file."""
+def verify_file(file_path: Path, sanity_check_func=None) -> bool:
+    """Run all checks on a single file using the pluggable language checker."""
     print(f"\n{file_path.relative_to(PROJECT_ROOT)}:")
 
     all_ok = True
+    checker = get_checker_for(file_path)
 
-    # 1. Import clean
-    ok = check_imports_clean(file_path)
-    if not ok:
-        detail = check_import_error_detail(file_path)
-        print(f"        Import error: {detail}")
-        all_ok = False
-        # Don't run further checks if import fails
+    # 1. Language-specific syntax check
+    ok, error = checker.check_syntax(file_path)
+    if not check(f"{checker.name} syntax", ok):
+        if error:
+            print(f"        {error}")
         return False
 
-    # 2. No placeholder code
+    # 2. Language-specific sanity check (imports, type checks, etc.)
+    if sanity_check_func:
+        ok = sanity_check_func(file_path)
+        check(f"Sanity check ({sanity_check_func.__name__})", ok)
+        if not ok:
+            all_ok = False
+    elif hasattr(checker, 'check_sanity'):
+        ok, detail = checker.check_sanity(file_path)
+        if not check(f"{checker.name} sanity", ok):
+            if detail:
+                print(f"        {detail}")
+            all_ok = False
+
+    # 3. No placeholder code (generic — works on any text file)
     placeholders = find_placeholder_code(file_path)
     ok = check("No placeholder code", len(placeholders) == 0)
     if not ok:
@@ -307,18 +380,13 @@ def verify_file(file_path: Path, check_func=None) -> bool:
             print(p)
         all_ok = False
 
-    # 3. File-specific sanity check
-    if check_func:
-        ok = check(f"Sanity check ({check_func.__name__})", check_func(file_path))
-        if not ok:
-            all_ok = False
-
-    # 4. Side-effect scan
-    side_effects = scan_side_effects(file_path)
-    if side_effects:
-        print(f"  {yellow('⚠')} Side-effect scan:")
-        for se in side_effects[:5]:
-            print(se)
+    # 4. Side-effect scan (currently Python-only; extend per-project)
+    if file_path.suffix == ".py":
+        side_effects = scan_side_effects(file_path)
+        if side_effects:
+            print(f"  {yellow('⚠')} Side-effect scan:")
+            for se in side_effects[:5]:
+                print(se)
 
     return all_ok
 
@@ -329,11 +397,11 @@ def main():
     parser = argparse.ArgumentParser(description="Post-implementation self-verification")
     parser.add_argument("--files", nargs="*", help="Specific files to check")
     parser.add_argument("--changed-only", action="store_true", help="Check only changed files")
-    parser.add_argument("--skip-tests", action="store_true", help="Skip running tests")
+    parser.add_argument("--skip-tests", action="store_true", help="Skip running tests (non-Python projects)")
     args = parser.parse_args()
 
     print("=" * 70)
-    print("WANDERING CODEX — Post-Implementation Self-Verification")
+    print("RSI Framework — Post-Implementation Self-Verification")
     print("=" * 70)
 
     # Determine which files to check
@@ -351,14 +419,19 @@ def main():
         print("Run with --changed-only or --files to specify files.")
         return
 
-    # Filter to Python files in the project
-    py_files = [f for f in files if f.suffix == ".py" and f.is_relative_to(PROJECT_ROOT / "src")]
-    test_files = [f for f in files if f.is_relative_to(TEST_ROOT)]
+    # Separate source and test files using the checker registry
+    source_files = []
+    test_files = []
+    for f in files:
+        if f.is_relative_to(TEST_ROOT) or is_test_file(f):
+            test_files.append(f)
+        else:
+            source_files.append(f)
 
-    print(f"\nChecking {len(py_files)} source file(s), {len(test_files)} test file(s)")
+    print(f"\nChecking {len(source_files)} source file(s), {len(test_files)} test file(s)")
 
     # Map files to their sanity check functions.
-    # ADD PROJECT-SPECIFIC CHECKS HERE. Default (no entry) = sanity_check_default = always passes.
+    # ADD PROJECT-SPECIFIC CHECKS HERE. Default (no entry) = no sanity check.
     # Example:
     #     sanity_checks = {
     #         "my_file.py": my_file_sanity_check,
@@ -366,16 +439,19 @@ def main():
     sanity_checks = {}
 
     all_ok = True
-    for f in py_files:
+    for f in source_files:
         check_func = sanity_checks.get(f.name)
-        file_ok = verify_file(f, check_func=check_func)
+        file_ok = verify_file(f, sanity_check_func=check_func)
         if not file_ok:
             all_ok = False
 
     for f in test_files:
         print(f"\n{f.relative_to(PROJECT_ROOT)}:")
-        ok = check_imports_clean(f)
-        if not ok:
+        checker = get_checker_for(f)
+        ok, error = checker.check_syntax(f)
+        if not check(f"{checker.name} syntax", ok):
+            if error:
+                print(f"        {error}")
             all_ok = False
 
     # Always run tests unless skipped
