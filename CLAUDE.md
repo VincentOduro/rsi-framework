@@ -214,24 +214,117 @@ python3 scripts/rsi.py ci               # Full CI gate
 
 ## Multi-Model Delegation
 
-When working as the overlord in a multi-model setup:
+**You ARE the overlord.** When the user gives you a task, you MUST automatically
+delegate implementation work to the MiniMax-M2.7 worker when MINIMAX_API_KEY is
+set. You plan, decompose, delegate, review, and accept/reject. The worker implements.
 
-1. **Decompose before delegating.** Break work into tasks with clear acceptance
-   criteria. Each task spec must include files_to_read, files_to_modify,
-   acceptance_criteria, and proof_wrong.
+### Automatic Delegation Workflow
 
-2. **Respect file sensitivity.** Never delegate constitution-level file changes
-   to the worker. The framework will block it, but don't even try.
-   Check with: `python3 scripts/rsi.py classify <filepath>`
+When the user gives you ANY implementation task (not a question, not exploration),
+follow this workflow automatically:
 
-3. **Review before proceeding.** Drain the review queue before starting new
-   work. This is Jidoka — stop the line when there's a quality issue.
+**Step 1: Classify the task.** Determine if it has delegatable subtasks.
 
-4. **Track delegation metrics.** If the worker's revision cycles exceed 2 on
-   average, the task decomposition is too vague. Improve the specs.
+Delegatable (send to worker):
+- Writing new code in open/guarded files
+- Writing tests
+- Writing docs
+- Bulk refactoring
+- Any implementation in files the worker can modify
 
-5. **The worker is not trusted.** Even accepted output must go through the
-   standard A→B→C loop. Delegation does not bypass the RSI process.
+NOT delegatable (handle yourself):
+- Architecture decisions
+- Modifying constitution files (CLAUDE.md, .rsi/**, scripts/hooks.py, scripts/delegate.py)
+- Reviewing worker output
+- Planning and decomposition
+
+**Step 2: Decompose into subtasks.** For each delegatable subtask, write a task spec:
+
+```bash
+cat > .rsi/tasks/TASK-NNN.json << 'TASKEOF'
+{
+    "id": "TASK-NNN",
+    "description": "What to do",
+    "instruction": "Detailed instruction for the worker",
+    "files_to_read": ["src/relevant.py"],
+    "files_to_modify": ["src/target.py", "tests/test_target.py"],
+    "acceptance_criteria": ["Specific verifiable criterion"],
+    "proof_wrong": "What could prove this implementation wrong",
+    "constraints": ["No new dependencies"]
+}
+TASKEOF
+```
+
+**Step 3: Check file sensitivity.** Before delegating:
+
+```bash
+python3 scripts/rsi.py classify src/target.py
+```
+
+Constitution files → handle yourself. Guarded/open → delegate.
+
+**Step 4: Delegate to worker.**
+
+```bash
+python3 scripts/rsi.py delegate .rsi/tasks/TASK-NNN.json
+```
+
+This calls MiniMax-M2.7, validates the output, writes the review to
+`.memory/reviews/pending/TASK-NNN.md`.
+
+**Step 5: Review the worker output.** Read the pending review:
+
+```bash
+python3 scripts/rsi.py review-queue show TASK-NNN
+```
+
+Evaluate against acceptance criteria. Then:
+
+```bash
+# If good:
+python3 scripts/rsi.py review-queue accept TASK-NNN --apply
+
+# If close but needs work:
+python3 scripts/rsi.py review-queue revise TASK-NNN --instruction "Fix the edge case for empty input"
+
+# If fundamentally wrong:
+python3 scripts/rsi.py review-queue reject TASK-NNN --reason "Wrong approach entirely"
+```
+
+**Step 6: Handle overlord-only subtasks yourself.** Architecture decisions,
+constitution file changes, final integration — do these directly.
+
+**Step 7: Run the A→B→C loop** on all changes (worker + overlord combined).
+
+### When to Delegate vs Handle Directly
+
+| Task | Route | Why |
+|------|-------|-----|
+| "Add input validation" | Delegate | Implementation in guarded/open files |
+| "Write tests for auth" | Delegate | Tests are open files |
+| "Refactor the database layer" | Delegate | Implementation work |
+| "Audit for security issues" | Both | Overlord analyzes, delegates test writing |
+| "Update CLAUDE.md" | Overlord only | Constitution file |
+| "Review the architecture" | Overlord only | Planning/decision |
+| "Fix a typo in README" | Overlord only | Too small to delegate |
+
+### Rules
+
+1. **Always check MINIMAX_API_KEY first.** If not set, handle everything yourself.
+   Don't fail — just skip delegation and work normally.
+
+2. **Never delegate constitution files.** `delegate.py` will block it, but don't try.
+
+3. **Drain the review queue.** Before starting new delegations, clear pending reviews:
+   ```bash
+   python3 scripts/rsi.py review-queue list
+   ```
+
+4. **Max 3 revision cycles.** If the worker can't get it right in 3 attempts,
+   handle it yourself. The task decomposition was too vague.
+
+5. **Worker output is not trusted.** Always review. Always verify. Always run
+   the A→B→C loop after accepting changes.
 
 ### File Sensitivity Levels
 
