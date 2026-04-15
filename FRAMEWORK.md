@@ -2,7 +2,7 @@
 
 A lightweight meta-process for software projects that turns every implementation into a learning opportunity, and every learning opportunity into the next implementation's improvement.
 
-**Status:** v1.8 | **Language:** Agnostic | **Stack:** Python + Bash + Git
+**Status:** v1.9 | **Language:** Agnostic | **Stack:** Python + Bash + Git
 
 ---
 
@@ -383,6 +383,7 @@ The framework is language-agnostic. For a different stack:
 | 2026-04-15 | v1.6 | Fixed hardcoded `/home/ajeem/wandering_codex` paths in self_feedback.py, self_optimization.py, post_implementation.py | 3 of 5 scripts had hardcoded paths |
 | 2026-04-15 | v1.7 | Added 24h session expiry (RSI_SESSION_TTL_HOURS), --fresh flag to skip auto-seeding. Added PROOF_WRONG_GUIDE.md with examples by change type. Moved MagicMock-specific checks to PROJECT_SPECIFIC_CHECKS. | P1-1, P1-3, P2-1, P2-2, P2-3 |
 | 2026-04-15 | v1.8 | Added pluggable LanguageChecker architecture to self_verify.py. Added FAIL-index usage guide to FRAMEWORK.md. Expanded framework self-tests. | P3-1, P3-2, P3-3 |
+| 2026-04-15 | v1.9 | Added pre-commit Stage 0 session check (`--require-session`). Added `--start` to preflight_check.py. Documented Module B as interactive-only (CI uses non-interactive path). | Session enforcement gap from v1.8 proposal |
 
 ## Using FAIL-index
 

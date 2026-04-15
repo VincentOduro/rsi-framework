@@ -2,7 +2,7 @@
 
 A lightweight meta-process that turns every implementation into a learning opportunity, and every learning opportunity into the next implementation's improvement. Built on Toyota Production System principles.
 
-**Status:** v1.8 | **Language:** Agnostic | **Stack:** Python + Bash + Git
+**Status:** v1.9 | **Language:** Agnostic | **Stack:** Python + Bash + Git
 
 ---
 
@@ -121,5 +121,6 @@ Examples:
 | v1.5 | Cross-platform installers: `setup.py` (Python), `setup.ps1` (PowerShell), `os.path.realpath()` in hooks |
 | v1.7 | 24h session expiry, `--fresh` flag to skip auto-seeding, PROOF_WRONG_GUIDE.md |
 | v1.8 | Pluggable LanguageChecker architecture in self_verify.py, FAIL-index usage guide, expanded self-tests |
+| v1.9 | Pre-commit Stage 0 session check (`--require-session`), `--start` flag, Module B documented as interactive-only |
 
 See [`FRAMEWORK.md`](FRAMEWORK.md) for full documentation.

@@ -280,6 +280,25 @@ def cmd_check(args, *, fresh: bool = False) -> None:
         sys.exit(0)
 
 
+def cmd_require_session() -> None:
+    """Block if no active session marker exists or session has expired."""
+    if _is_session_expired():
+        print(f"{red('✗ No active RSI session — commit blocked')}")
+        print(f"")
+        print(f"Run 'python3 scripts/preflight_check.py --start' to start a session.")
+        print(f"Session markers expire after {RSI_SESSION_TTL_HOURS}h (configurable via RSI_SESSION_TTL_HOURS env var).")
+        sys.exit(1)
+    print(f"{green('✓ RSI session active')}")
+    sys.exit(0)
+
+
+def cmd_start() -> None:
+    """Start a new RSI session. Creates or refreshes the session marker."""
+    _touch_session()
+    print(f"{green('✓ RSI session started')}")
+    print(f"Session expires in {RSI_SESSION_TTL_HOURS}h (configurable via RSI_SESSION_TTL_HOURS env var).")
+
+
 def cmd_reset() -> None:
     """Reset pre-flight state for a fresh session."""
     state = _load_state()
@@ -303,6 +322,11 @@ def main():
     parser.add_argument("--record", nargs="+", help="Record that FILE was read")
     parser.add_argument("--report", action="store_true", help="Show read vs edited status")
     parser.add_argument("--reset", action="store_true", help="Reset pre-flight state for fresh session")
+    parser.add_argument("--require-session", action="store_true",
+                        help="Block if no active session marker exists or session has expired. "
+                             "Use as pre-commit Stage 0 to enforce session start.")
+    parser.add_argument("--start", action="store_true",
+                        help="Start a new RSI session (creates or refreshes session marker).")
     parser.add_argument("--fresh", action="store_true",
                         help="Skip auto-seeding from git-tracked files. All files must be explicitly recorded. "
                              "Useful for strict enforcement on new projects or after project restructuring.")
@@ -315,6 +339,10 @@ def main():
 
     if args.record:
         cmd_record(args.record, fresh=fresh)
+    elif args.require_session:
+        cmd_require_session()
+    elif args.start:
+        cmd_start()
     elif args.report:
         cmd_report(fresh=fresh)
     elif args.reset:

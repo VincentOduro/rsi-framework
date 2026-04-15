@@ -103,3 +103,13 @@ def test_get_checker_for_file():
     assert isinstance(sv.get_checker_for(Path("foo.sh")), sv.ShellChecker)
     assert isinstance(sv.get_checker_for(Path("foo.js")), sv.GenericTextChecker)
     assert isinstance(sv.get_checker_for(Path("foo.txt")), sv.GenericTextChecker)
+
+
+def test_session_check_functions_exist():
+    """Verify --require-session and --start functions exist."""
+    import scripts.preflight_check as pc
+
+    assert hasattr(pc, 'cmd_require_session')
+    assert hasattr(pc, 'cmd_start')
+    assert hasattr(pc, '_is_session_expired')
+    assert hasattr(pc, '_touch_session')

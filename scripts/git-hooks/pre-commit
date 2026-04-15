@@ -25,7 +25,19 @@ RESET='\033[0m'
 
 echo "Running pre-commit checks..."
 
-# ---- 0. Pre-flight: verify files were read before being edited ----
+# ---- 0. Session check: verify an active RSI session exists ----
+echo ""
+echo "[SESSION] Checking for active RSI session..."
+SESSION_RESULT=$(python3 -B "$PROJECT_ROOT/scripts/preflight_check.py" --require-session 2>&1)
+SESSION_EXIT=$?
+echo "$SESSION_RESULT"
+if [ $SESSION_EXIT -ne 0 ]; then
+    echo "${RED}✗ SESSION CHECK FAILED — run 'python3 scripts/preflight_check.py --start' first${RESET}"
+    exit 1
+fi
+echo "${GREEN}✓ Session active${RESET}"
+
+# ---- 1. Pre-flight: verify files were read before being edited ----
 echo ""
 echo "[PRE-FLIGHT] Checking if files were read before being edited..."
 PREFLIGHT_RESULT=$(python3 -B "$PROJECT_ROOT/scripts/preflight_check.py" --check-edited 2>&1)

@@ -13,6 +13,12 @@ What it does:
 Usage:
     python3 scripts/self_feedback.py
     python3 scripts/self_feedback.py --task "H-2 fix" --files src/wandering_codex/api/progression.py
+
+Note: This script is designed for interactive use. For CI contexts where
+interactive prompts are unavailable, run Module B via the non-interactive
+path in post_implementation.py (which captures proof-wrong and chains to
+self_optimization without requiring stdin input). Module B's value comes
+from adversarial thinking, not mechanical pattern detection.
 """
 
 import argparse
