@@ -5,7 +5,12 @@
 
 set -e
 
-REAL_PATH="$(readlink -f "$BASH_SOURCE[0]")"
+# Resolve symlink using Python (works on Linux, macOS, Windows Git Bash)
+if [ -x "$(command -v python3)" ]; then
+    REAL_PATH="$(python3 -c "import os; print(os.path.realpath('$BASH_SOURCE[0]'))")"
+else
+    REAL_PATH="$BASH_SOURCE[0]"
+fi
 PROJECT_ROOT="$(cd "$(dirname "$REAL_PATH")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 

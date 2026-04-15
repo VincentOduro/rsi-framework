@@ -1,20 +1,30 @@
 #!/bin/bash
 # setup.sh — Install RSI framework hooks system-wide via git template
 # ONE-TIME SETUP: Run once on a machine. Hooks then work automatically for every clone.
-# 
+#
+# Cross-platform: Linux, macOS, Windows Git Bash
+# For PowerShell, use: python setup.py (this script IS the setup.py)
+#
 # What it does:
 # - Installs hooks to ~/.git_template/hooks/ (git's template directory)
 # - Every `git clone` or `git init` automatically gets these hooks
-# - Creates ~/.memory/rsi/ as the framework home (optional shared memory)
-# - Adds rsi-framework alias for quick access
 #
 # To undo: rm -rf ~/.git_template/hooks/rsi-* ~/.memory/rsi/
 
 set -e
 
+# Resolve project root using Python (works on Linux, macOS, Windows Git Bash)
+# Falls back to dirname-based resolution if Python not available
+if [ -x "$(command -v python3)" ]; then
+    RSIFW_SCRIPT_DIR="$(python3 -c "import os; print(os.path.dirname(os.path.realpath('$0')))")"
+    RSIFW_PROJECT_ROOT="$(python3 -c "import os; print(os.path.dirname(os.path.realpath('$0')))" | xargs dirname)"
+else
+    RSIFW_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    RSIFW_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && cd .. && pwd)"
+fi
+
 TEMPLATE_HOOKS="$HOME/.git_template/hooks"
-RSI_HOOKS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/git-hooks"
-MEMORY_HOME="$HOME/.memory/rsi"
+RSI_HOOKS="$RSIFW_PROJECT_ROOT/scripts/git-hooks"
 
 echo "RSI Framework — System-wide Setup"
 echo ""

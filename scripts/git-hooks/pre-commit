@@ -7,9 +7,15 @@
 set -e
 
 # Resolve symlink to get real path, then go up to project root
-# Hook installed as: ln -s ../../scripts/git-hooks/pre-commit .git/hooks/pre-commit
+# Python's os.path.realpath works on Linux, macOS, and Windows Git Bash
+# Hook installed via: ln -s or core.hooksPath pointing to scripts/git-hooks/
 # BASH_SOURCE[0] = .git/hooks/pre-commit (symlink) → resolves to scripts/git-hooks/pre-commit
-REAL_PATH="$(readlink -f "$BASH_SOURCE[0]")"
+if [ -x "$(command -v python3)" ]; then
+    REAL_PATH="$(python3 -c "import os; print(os.path.realpath('$BASH_SOURCE[0]'))")"
+else
+    # Fallback for systems without Python
+    REAL_PATH="$BASH_SOURCE[0]"
+fi
 PROJECT_ROOT="$(cd "$(dirname "$REAL_PATH")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
