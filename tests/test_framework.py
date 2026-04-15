@@ -125,3 +125,15 @@ def test_backlog_imports():
     assert hasattr(bl, 'cmd_show')
     assert hasattr(bl, 'cmd_update')
     assert hasattr(bl, 'cmd_stats')
+
+
+def test_framework_sync_imports():
+    """Verify framework_sync.py can be imported."""
+    import scripts.framework_sync as fs
+    assert hasattr(fs, 'cmd_status')
+    assert hasattr(fs, 'cmd_check')
+    assert hasattr(fs, 'cmd_pull')
+    assert hasattr(fs, 'cmd_adopt')
+    assert hasattr(fs, 'cmd_feedback')
+    assert hasattr(fs, 'FRAMEWORK_MARKER')
+    assert hasattr(fs, 'FEEDBACK_FILE')

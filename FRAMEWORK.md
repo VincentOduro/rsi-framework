@@ -2,7 +2,7 @@
 
 A lightweight meta-process for software projects that turns every implementation into a learning opportunity, and every learning opportunity into the next implementation's improvement.
 
-**Status:** v1.10 | **Language:** Agnostic | **Stack:** Python + Bash + Git
+**Status:** v1.11 | **Language:** Agnostic | **Stack:** Python + Bash + Git
 
 ---
 
@@ -153,6 +153,7 @@ rsi-framework/
 ├── scripts/                      # Workflow automation (agnostic)
 │   ├── __init__.py              # Package marker
 │   ├── backlog.py               # Backlog manager (add/list/update/show/stats)
+│   ├── framework_sync.py        # Framework self-update + feedback manager
 │   ├── post_implementation.py    # Module A
 │   ├── self_feedback.py         # Module B
 │   ├── self_optimization.py     # Module C
@@ -387,6 +388,7 @@ The framework is language-agnostic. For a different stack:
 | 2026-04-15 | v1.8 | Added pluggable LanguageChecker architecture to self_verify.py. Added FAIL-index usage guide to FRAMEWORK.md. Expanded framework self-tests. | P3-1, P3-2, P3-3 |
 | 2026-04-15 | v1.9 | Added pre-commit Stage 0 session check (`--require-session`). Added `--start` to preflight_check.py. Documented Module B as interactive-only (CI uses non-interactive path). | Session enforcement gap from v1.8 proposal |
 | 2026-04-15 | v1.10 | Added markdown-based backlog system (`backlog.md` + `scripts/backlog.py`) with standard task format. Supports add/list/show/update/stats. | Consistent task tracking across all projects |
+| 2026-04-15 | v1.11 | Added framework_sync.py (file-copy update detection, self-update with backup, feedback capture). | Framework self-update + feedback mechanism |
 
 ## Using FAIL-index
 
