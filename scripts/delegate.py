@@ -123,10 +123,18 @@ def validate_task(task: dict) -> list[str]:
         if not (PROJECT_ROOT / filepath).exists():
             issues.append(f"File to read does not exist: {filepath}")
 
-    # Unique task ID
-    task_file = TASKS_DIR / f"{task.get('id', 'UNKNOWN')}.json"
-    if task_file.exists():
-        issues.append(f"Task ID {task.get('id')} already exists in .rsi/tasks/")
+    # Unique task ID — skip if we're delegating the file that's already in .rsi/tasks/
+    # (the overlord writes the spec there, then calls delegate.py with that same path)
+    task_id = task.get("id", "UNKNOWN")
+    task_file_in_dir = TASKS_DIR / f"{task_id}.json"
+    if task_file_in_dir.exists():
+        try:
+            existing = json.loads(task_file_in_dir.read_text())
+            # Only flag if existing task has a DIFFERENT description (true duplicate)
+            if existing.get("description") != task.get("description"):
+                issues.append(f"Task ID {task_id} already exists with different description in .rsi/tasks/")
+        except (json.JSONDecodeError, IOError):
+            pass
 
     return issues
 
@@ -656,10 +664,7 @@ def cmd_history(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="RSI Delegation Engine — send tasks to worker model")
-    sub = parser.add_subparsers(dest="command")
-
-    # Default: delegate a task file
+    parser = argparse.ArgumentParser(description="RSI Delegation Engine -- send tasks to worker model")
     parser.add_argument("task_file", nargs="?", help="Path to task spec JSON file")
     parser.add_argument("--apply", action="store_true", help="Apply changes (default: dry-run)")
     parser.add_argument("--revise", help="Revision instruction for the worker")
@@ -670,6 +675,10 @@ def main():
     if args.history:
         cmd_history(args)
     elif args.task_file:
+        task_path = Path(args.task_file)
+        if not task_path.exists() or not task_path.is_file():
+            print(f"ERROR: Not a file: {args.task_file}", file=sys.stderr)
+            sys.exit(1)
         cmd_delegate(args)
     else:
         parser.print_help()
