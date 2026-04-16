@@ -41,8 +41,15 @@ def _ensure_dirs():
     DELEGATIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
 
 
+_worker_config_cache: dict | None = None
+
+
 def _load_worker_config() -> dict:
-    """Load worker API config from architecture.yaml."""
+    """Load worker API config from architecture.yaml. Cached after first call."""
+    global _worker_config_cache
+    if _worker_config_cache is not None:
+        return _worker_config_cache
+
     if not ARCHITECTURE_FILE.exists():
         return {
             "provider": "minimax",
@@ -77,6 +84,7 @@ def _load_worker_config() -> dict:
     config.setdefault("max_tokens", "8192")
     config.setdefault("timeout_seconds", "120")
     config.setdefault("env_key", "MINIMAX_API_KEY")
+    _worker_config_cache = config
     return config
 
 
@@ -168,17 +176,60 @@ RESPONSE FORMAT:
 {"changes": {"path/to/file.py": "full file contents"}, "proof_wrong": "specific hypothesis", "notes": "brief notes"}"""
 
 
-def build_worker_prompt(task: dict) -> str:
-    """Build the full prompt for the worker model, including file contents."""
-    parts = [f"TASK SPECIFICATION:\n{json.dumps(task, indent=2)}\n"]
+def _parse_file_spec(spec: str) -> tuple[str, int | None, int | None]:
+    """Parse a file spec with optional line range.
 
-    # Inject file contents (Genchi Genbutsu for the worker)
-    parts.append("FILE CONTENTS (read these before implementing):\n")
-    for filepath in task.get("files_to_read", []):
+    "src/main.py"         -> ("src/main.py", None, None)
+    "src/main.py:100-200" -> ("src/main.py", 100, 200)
+    "src/main.py:50"      -> ("src/main.py", 50, None)
+    """
+    if ":" in spec:
+        parts = spec.rsplit(":", 1)
+        filepath = parts[0]
+        range_str = parts[1]
+        # Don't parse Windows drive letters (C:\...) as line ranges
+        if len(range_str) > 0 and range_str[0].isdigit():
+            if "-" in range_str:
+                start, end = range_str.split("-", 1)
+                return filepath, int(start), int(end)
+            else:
+                return filepath, int(range_str), None
+    return spec, None, None
+
+
+def build_worker_prompt(task: dict) -> str:
+    """Build the full prompt for the worker model, including file contents.
+
+    Supports line-range restriction to reduce token usage:
+        files_to_read: ["src/big.py"]           -> full file
+        files_to_read: ["src/big.py:100-200"]   -> lines 100-200 only
+        files_to_read: ["src/big.py:50"]         -> from line 50 to end
+    """
+    # Build lean task spec -- only fields the worker needs
+    lean_task = {
+        "id": task.get("id"),
+        "instruction": task.get("instruction", task.get("description", "")),
+        "files_to_modify": task.get("files_to_modify", []),
+        "acceptance_criteria": task.get("acceptance_criteria", []),
+        "constraints": task.get("constraints", []),
+    }
+    parts = [f"TASK:\n{json.dumps(lean_task, indent=2)}\n"]
+
+    # Inject file contents with optional line-range restriction
+    parts.append("FILE CONTENTS:\n")
+    for file_spec in task.get("files_to_read", []):
+        filepath, start_line, end_line = _parse_file_spec(file_spec)
         full_path = PROJECT_ROOT / filepath
         if full_path.exists():
             content = full_path.read_text()
-            parts.append(f'<file path="{filepath}">\n{content}\n</file>\n')
+            if start_line or end_line:
+                lines = content.split("\n")
+                s = (start_line - 1) if start_line else 0
+                e = end_line if end_line else len(lines)
+                content = "\n".join(lines[s:e])
+                parts.append(f'<file path="{filepath}" lines="{s+1}-{e}">\n{content}\n</file>\n')
+            else:
+                parts.append(f'<file path="{filepath}">\n{content}\n</file>\n')
         else:
             parts.append(f'<file path="{filepath}">\n(file not found)\n</file>\n')
 
@@ -490,39 +541,38 @@ def call_worker(task: dict, revision_instruction: str = "") -> dict:
 # ---------------------------------------------------------------------------
 
 def write_review(task: dict, result: dict) -> Path:
-    """Write worker result to .memory/reviews/pending/ for overlord review."""
+    """Write worker result to .memory/reviews/pending/ for overlord review.
+
+    Lean format: references task spec instead of duplicating fields.
+    Only includes worker output (proof-wrong, changes, notes).
+    """
     _ensure_dirs()
     task_id = task["id"]
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    # List changed files with line counts, not full contents
+    changes_summary = []
+    for path, content in result.get("changes", {}).items():
+        line_count = content.count("\n") + 1
+        changes_summary.append(f"- {path} ({line_count} lines)")
+
     review_content = f"""# Review: {task_id}
 
-**Task:** {task['description']}
-**Worker model:** {_load_worker_config().get('model', 'unknown')}
 **Date:** {timestamp}
 **Status:** PENDING REVIEW
+**Task spec:** .rsi/tasks/{task_id}.json
 
-## Instruction
-{task.get('instruction', '')}
+## Proof-Wrong
+{result.get('proof_wrong', '(none)')}
 
-## Acceptance Criteria
-{chr(10).join(f'- [ ] {c}' for c in task.get('acceptance_criteria', []))}
+## Changes
+{chr(10).join(changes_summary)}
 
-## Worker Proof-Wrong
-{result.get('proof_wrong', '(none provided)')}
-
-## Worker Notes
+## Notes
 {result.get('notes', '(none)')}
 
-## Proposed Changes
-"""
-    for path, content in result.get("changes", {}).items():
-        review_content += f"\n### {path}\n```\n{content[:3000]}\n```\n"
-
-    review_content += f"""
 ---
-**Tokens used:** {result.get('tokens_used', 'unknown')}
-**Latency:** {result.get('latency_seconds', 'unknown')}s
+Tokens: {result.get('tokens_used', '?')} | Latency: {result.get('latency_seconds', '?')}s
 """
 
     review_path = PENDING_DIR / f"{task_id}.md"

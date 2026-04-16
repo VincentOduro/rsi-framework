@@ -27,10 +27,23 @@ SENSITIVITY_LEVELS = ["constitution", "guarded", "open"]
 DEFAULT_SENSITIVITY = "guarded"
 
 
+_architecture_cache: dict | None = None
+_architecture_mtime: float = 0.0
+
+
 def _load_architecture() -> dict:
-    """Load and parse architecture.yaml. Uses simple parser to avoid PyYAML dependency."""
+    """Load and parse architecture.yaml. Cached until file changes on disk."""
+    global _architecture_cache, _architecture_mtime
+
     if not ARCHITECTURE_FILE.exists():
         return {}
+
+    # Cache invalidation by mtime
+    current_mtime = ARCHITECTURE_FILE.stat().st_mtime
+    if _architecture_cache is not None and current_mtime == _architecture_mtime:
+        return _architecture_cache
+
+    _architecture_mtime = current_mtime
 
     content = ARCHITECTURE_FILE.read_text()
 
@@ -68,6 +81,7 @@ def _load_architecture() -> dict:
             if not stripped.startswith("description:"):
                 in_patterns = False
 
+    _architecture_cache = result
     return result
 
 

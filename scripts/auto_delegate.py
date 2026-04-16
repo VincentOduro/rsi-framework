@@ -595,6 +595,17 @@ def main():
 
     args = parser.parse_args()
 
+    # Guard against Claude Code double-billing
+    if os.environ.get("CLAUDE_CODE") or os.environ.get("CLAUDE_SESSION"):
+        print("WARNING: auto_delegate.py calls the Anthropic API for overlord functions.")
+        print("You are running inside Claude Code, which IS already Claude.")
+        print("This will double-bill for Claude. Use delegate.py + review_queue.py directly.")
+        print("See CLAUDE.md for the correct workflow.")
+        print("")
+        print("To proceed anyway (standalone mode): set RSI_ALLOW_AUTO=1")
+        if not os.environ.get("RSI_ALLOW_AUTO"):
+            sys.exit(1)
+
     task_description = " ".join(args.task) if args.task else ""
     if not task_description:
         print("Usage: python3 scripts/auto_delegate.py 'Your task description'")

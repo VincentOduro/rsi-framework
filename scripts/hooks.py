@@ -1,29 +1,21 @@
 #!/usr/bin/env python3
 """
-Claude Code hook handlers — poka-yoke (mistake-proofing) at the tool layer.
+Claude Code hook handlers -- poka-yoke (mistake-proofing) at the tool layer.
 
-Toyota Principle 5: Jidoka — build quality in, stop on defects.
-Toyota Principle 12: Genchi Genbutsu — go and see for yourself.
+Enforces: read-before-edit, delegation gate, session TTL, FAIL-index awareness.
 
-These hooks run BEFORE and AFTER Claude Code tool calls, enforcing:
-  - Read before edit (Genchi Genbutsu)
-  - FAIL-index awareness (learn from past failures)
-  - Post-edit verification (Jidoka)
-  - Session tracking (continuity)
+Hook protocol: receives JSON on stdin, outputs text to stdout.
+Exit 0 = allow, exit non-zero = block.
 
-Hook protocol:
-  - Receives tool input as JSON on stdin
-  - Outputs feedback text to stdout (shown to agent)
-  - Exit 0 = allow, exit non-zero = block
-
-Configured in .claude/settings.json
+Performance: each hook invocation is a fresh Python process, so module-level
+caches only live for one call. Disk reads are minimized by reading each file
+at most once per invocation and reusing the result.
 """
 
 import json
 import os
-import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 PROJECT_ROOT = Path(os.environ.get("RSI_PROJECT_ROOT", Path(__file__).parent.parent.resolve()))
@@ -31,6 +23,36 @@ MEMORY_ROOT = PROJECT_ROOT / ".memory"
 STATE_FILE = MEMORY_ROOT / ".preflight_state.json"
 SESSION_FILE = MEMORY_ROOT / ".session_timestamp"
 FAIL_INDEX_FILE = MEMORY_ROOT / "technical" / "FAIL-index.md"
+ACCEPTED_DIR = MEMORY_ROOT / "reviews" / "accepted"
+OVERRIDES_DIR = PROJECT_ROOT / ".rsi" / "overrides"
+
+
+# ---------------------------------------------------------------------------
+# Per-invocation cache -- each hook is a separate process, so this cache
+# lives for exactly one tool call. Eliminates redundant reads within a
+# single hook invocation (session file read twice, state file read twice, etc).
+# ---------------------------------------------------------------------------
+
+_cache: dict = {}
+
+
+def _read_cached(path: Path) -> str | None:
+    """Read a file, caching the result for this invocation."""
+    key = str(path)
+    if key not in _cache:
+        if path.exists():
+            try:
+                _cache[key] = path.read_text()
+            except IOError:
+                _cache[key] = None
+        else:
+            _cache[key] = None
+    return _cache[key]
+
+
+def _invalidate_cache(path: Path) -> None:
+    """Invalidate cache after writing to a file."""
+    _cache.pop(str(path), None)
 
 
 # ---------------------------------------------------------------------------
@@ -38,52 +60,48 @@ FAIL_INDEX_FILE = MEMORY_ROOT / "technical" / "FAIL-index.md"
 # ---------------------------------------------------------------------------
 
 def _load_read_files() -> set[str]:
-    """Load the set of files recorded as read in this session."""
-    if not STATE_FILE.exists():
+    content = _read_cached(STATE_FILE)
+    if not content:
         return set()
     try:
-        data = json.loads(STATE_FILE.read_text())
-        return set(data.get("read_files", []))
-    except (json.JSONDecodeError, IOError):
+        return set(json.loads(content).get("read_files", []))
+    except (json.JSONDecodeError, ValueError):
         return set()
+
+
+def _load_state_data() -> dict:
+    content = _read_cached(STATE_FILE)
+    if not content:
+        return {"read_files": [], "edited_files": [], "sessions": []}
+    try:
+        return json.loads(content)
+    except (json.JSONDecodeError, ValueError):
+        return {"read_files": [], "edited_files": [], "sessions": []}
+
+
+def _save_state(data: dict) -> None:
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps(data, indent=2))
+    _invalidate_cache(STATE_FILE)
 
 
 def _record_file_read(filepath: str) -> None:
-    """Mark a file as read in the session state."""
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if STATE_FILE.exists():
-        try:
-            data = json.loads(STATE_FILE.read_text())
-        except (json.JSONDecodeError, IOError):
-            data = {"read_files": [], "edited_files": [], "sessions": []}
-    else:
-        data = {"read_files": [], "edited_files": [], "sessions": []}
-
+    data = _load_state_data()
     read_set = set(data.get("read_files", []))
     read_set.add(filepath)
     data["read_files"] = sorted(read_set)
-    STATE_FILE.write_text(json.dumps(data, indent=2))
+    _save_state(data)
 
 
 def _record_file_edited(filepath: str) -> None:
-    """Mark a file as edited in the session state."""
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if STATE_FILE.exists():
-        try:
-            data = json.loads(STATE_FILE.read_text())
-        except (json.JSONDecodeError, IOError):
-            data = {"read_files": [], "edited_files": [], "sessions": []}
-    else:
-        data = {"read_files": [], "edited_files": [], "sessions": []}
-
+    data = _load_state_data()
     edited_set = set(data.get("edited_files", []))
     edited_set.add(filepath)
     data["edited_files"] = sorted(edited_set)
-    STATE_FILE.write_text(json.dumps(data, indent=2))
+    _save_state(data)
 
 
 def _relative_path(filepath: str) -> str:
-    """Convert absolute path to project-relative."""
     try:
         return str(Path(filepath).resolve().relative_to(PROJECT_ROOT.resolve()))
     except ValueError:
@@ -91,120 +109,159 @@ def _relative_path(filepath: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# FAIL-index integration
+# Session management -- single read, multiple uses
+# ---------------------------------------------------------------------------
+
+def _load_session_data() -> dict | None:
+    """Load session data once, return parsed dict or None."""
+    content = _read_cached(SESSION_FILE)
+    if not content:
+        return None
+    try:
+        return json.loads(content)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def _is_session_expired() -> bool:
+    data = _load_session_data()
+    if not data:
+        return True
+    try:
+        ts = datetime.fromisoformat(data["timestamp"])
+        ttl = int(data.get("ttl_hours", 24))
+        return (datetime.now(timezone.utc) - ts) > timedelta(hours=ttl)
+    except (KeyError, ValueError):
+        return True
+
+
+def _get_session_time_remaining() -> tuple[bool, int]:
+    """Returns (is_expiring_soon, minutes_remaining). Uses cached session data."""
+    data = _load_session_data()
+    if not data:
+        return True, 0
+    try:
+        ts = datetime.fromisoformat(data["timestamp"])
+        ttl = int(data.get("ttl_hours", 24))
+        remaining = timedelta(hours=ttl) - (datetime.now(timezone.utc) - ts)
+        minutes = int(remaining.total_seconds() / 60)
+        return (0 < minutes < 60), max(0, minutes)
+    except (KeyError, ValueError):
+        return True, 0
+
+
+# ---------------------------------------------------------------------------
+# FAIL-index -- cached read, actual relevance filtering
 # ---------------------------------------------------------------------------
 
 def _get_relevant_fail_entries(filepath: str) -> list[str]:
-    """Check FAIL-index for entries relevant to the file being edited."""
-    if not FAIL_INDEX_FILE.exists():
+    """Return FAIL-index entries relevant to this file.
+
+    Relevance heuristic: entries whose failure mode or rule text mentions
+    keywords related to the file's type (test, import, edit, commit, etc).
+    Falls back to returning the 3 most universal entries if no keyword match.
+    """
+    content = _read_cached(FAIL_INDEX_FILE)
+    if not content:
         return []
 
-    content = FAIL_INDEX_FILE.read_text()
     filename = Path(filepath).name
     stem = Path(filepath).stem
+    suffix = Path(filepath).suffix
 
-    # Surface all FAIL entries — the agent should be aware of known failure modes
-    entries = []
+    all_entries = []
     for line in content.split("\n"):
         if line.strip().startswith("| FAIL-"):
             parts = [p.strip() for p in line.split("|") if p.strip()]
             if len(parts) >= 3:
-                fail_id = parts[0]
-                failure_mode = parts[1]
-                rule = parts[2]
-                entries.append(f"  {fail_id}: {failure_mode} -> {rule}")
+                all_entries.append({
+                    "id": parts[0],
+                    "mode": parts[1],
+                    "rule": parts[2],
+                    "text": f"  {parts[0]}: {parts[1]} -> {parts[2]}",
+                })
 
-    return entries
+    if not all_entries:
+        return []
+
+    # Keyword relevance matching
+    relevant = []
+    filepath_lower = filepath.lower()
+
+    for entry in all_entries:
+        mode_lower = entry["mode"].lower()
+        rule_lower = entry["rule"].lower()
+
+        # Always-relevant entries (editing, reading, verification)
+        if any(kw in mode_lower for kw in ["edit", "read", "verif", "commit", "memory"]):
+            relevant.append(entry["text"])
+            continue
+
+        # File-type-specific matching
+        if suffix == ".py" and any(kw in mode_lower for kw in ["import", "syntax", "test"]):
+            relevant.append(entry["text"])
+        elif "test" in filepath_lower and "test" in mode_lower:
+            relevant.append(entry["text"])
+
+    # Return relevant entries, or top 3 universal ones if no matches
+    if relevant:
+        return relevant[:5]
+    return [e["text"] for e in all_entries[:3]]
 
 
 # ---------------------------------------------------------------------------
-# Delegation trail checking
+# Delegation trail -- cached reads
 # ---------------------------------------------------------------------------
-
-ACCEPTED_DIR = MEMORY_ROOT / "reviews" / "accepted"
-OVERRIDES_DIR = PROJECT_ROOT / ".rsi" / "overrides"
-
 
 def _has_delegation_trail(filepath: str) -> bool:
-    """Check if a file has been authorized through the delegation system.
-
-    Returns True if any accepted review in .memory/reviews/accepted/
-    references this file in its proposed changes section.
-    """
+    """Check if accepted reviews authorize this file."""
     if not ACCEPTED_DIR.exists():
         return False
 
-    # Normalize for cross-platform matching
     normalized = filepath.replace("\\", "/")
-
     for review_file in ACCEPTED_DIR.glob("*.md"):
+        content = _read_cached(review_file)
+        if content and normalized in content.replace("\\", "/"):
+            return True
+    return False
+
+
+def _has_override(filepath: str) -> bool:
+    """Check if a non-expired override exists for this file."""
+    if not OVERRIDES_DIR.exists():
+        return False
+
+    filepath = filepath.replace("\\", "/")
+    now = datetime.now(timezone.utc)
+
+    for of in OVERRIDES_DIR.glob("*.json"):
+        content = _read_cached(of)
+        if not content:
+            continue
         try:
-            content = review_file.read_text().replace("\\", "/")
-            if normalized in content:
+            data = json.loads(content)
+            pattern = data.get("filepath", "").replace("\\", "/")
+            if not pattern:
+                continue
+            # Match exact or wildcard
+            if pattern != filepath and not (pattern.endswith("*") and filepath.startswith(pattern[:-1])):
+                continue
+            # Check expiry
+            created = datetime.fromisoformat(data.get("created", "2000-01-01"))
+            ttl = int(data.get("ttl_minutes", 60))
+            if (now - created) < timedelta(minutes=ttl):
                 return True
-        except Exception:
+        except (json.JSONDecodeError, ValueError):
             continue
 
     return False
 
 
-def _has_override(filepath: str) -> bool:
-    """Check if an explicit overlord override exists for this file.
-
-    Overrides are created via: python3 scripts/rsi.py override <filepath> --reason "..."
-    They live in .rsi/overrides/ as JSON files and expire after 1 hour.
-    """
-    if not OVERRIDES_DIR.exists():
-        return False
-
-    # Normalize for cross-platform matching
-    filepath = filepath.replace("\\", "/")
-
-    # Check for a matching override file
-    safe_name = filepath.replace("/", "_").replace("\\", "_")
-    override_file = OVERRIDES_DIR / f"{safe_name}.json"
-
-    if not override_file.exists():
-        # Also check wildcard overrides (e.g., override for "scripts/*.py")
-        for of in OVERRIDES_DIR.glob("*.json"):
-            try:
-                data = json.loads(of.read_text())
-                pattern = data.get("filepath", "")
-                if pattern and (pattern == filepath or
-                    (pattern.endswith("*") and filepath.startswith(pattern[:-1]))):
-                    # Check expiry
-                    from datetime import timedelta
-                    created = datetime.fromisoformat(data.get("created", "2000-01-01"))
-                    ttl_minutes = int(data.get("ttl_minutes", 60))
-                    if datetime.now(timezone.utc) - created < timedelta(minutes=ttl_minutes):
-                        return True
-            except Exception:
-                continue
-        return False
-
-    try:
-        data = json.loads(override_file.read_text())
-        from datetime import timedelta
-        created = datetime.fromisoformat(data.get("created", "2000-01-01"))
-        ttl_minutes = int(data.get("ttl_minutes", 60))
-        if datetime.now(timezone.utc) - created < timedelta(minutes=ttl_minutes):
-            return True
-    except Exception:
-        pass
-
-    return False
-
-
 def create_override(filepath: str, reason: str, ttl_minutes: int = 60) -> Path:
-    """Create a temporary override allowing direct edit of a delegatable file.
-
-    Overrides expire after ttl_minutes (default: 60 minutes / 1 hour).
-    This is the emergency escape hatch — use sparingly.
-    """
+    """Create a temporary override allowing direct edit of a delegatable file."""
     OVERRIDES_DIR.mkdir(parents=True, exist_ok=True)
     safe_name = filepath.replace("/", "_").replace("\\", "_")
     override_file = OVERRIDES_DIR / f"{safe_name}.json"
-
     data = {
         "filepath": filepath,
         "reason": reason,
@@ -220,161 +277,86 @@ def create_override(filepath: str, reason: str, ttl_minutes: int = 60) -> Path:
 # ---------------------------------------------------------------------------
 
 def handle_pre_read(tool_input: dict) -> None:
-    """PreToolUse handler for Read tool — record that file was read."""
     filepath = tool_input.get("file_path", "")
     if filepath:
-        rel = _relative_path(filepath)
-        _record_file_read(rel)
-
-
-def _is_session_expired() -> bool:
-    """Check if the RSI session has expired (TTL-based)."""
-    if not SESSION_FILE.exists():
-        return True
-    try:
-        import json
-        from datetime import datetime, timezone, timedelta
-        data = json.loads(SESSION_FILE.read_text())
-        last_session = datetime.fromisoformat(data["timestamp"])
-        ttl_hours = int(data.get("ttl_hours", 24))
-        now = datetime.now(timezone.utc)
-        return (now - last_session) > timedelta(hours=ttl_hours)
-    except (json.JSONDecodeError, IOError, KeyError, ValueError):
-        return True
-
-
-def _get_session_time_remaining() -> tuple[bool, int]:
-    """Get session time remaining until expiry.
-
-    Returns:
-        (is_expiring_soon, minutes_remaining)
-        is_expiring_soon: True if less than 1 hour remaining
-        minutes_remaining: Minutes until expiry, or 0 if expired
-    """
-    if not SESSION_FILE.exists():
-        return True, 0
-    try:
-        import json
-        from datetime import datetime, timezone, timedelta
-        data = json.loads(SESSION_FILE.read_text())
-        last_session = datetime.fromisoformat(data["timestamp"])
-        ttl_hours = int(data.get("ttl_hours", 24))
-        now = datetime.now(timezone.utc)
-        age = now - last_session
-        remaining = timedelta(hours=ttl_hours) - age
-        minutes_remaining = int(remaining.total_seconds() / 60)
-        is_expiring_soon = minutes_remaining < 60 and minutes_remaining > 0
-        return is_expiring_soon, max(0, minutes_remaining)
-    except (json.JSONDecodeError, IOError, KeyError, ValueError):
-        return True, 0
+        _record_file_read(_relative_path(filepath))
 
 
 def handle_pre_edit(tool_input: dict) -> None:
-    """PreToolUse handler for Edit/Write — enforce read-before-edit and session TTL."""
     filepath = tool_input.get("file_path", "")
     if not filepath:
         return
 
-    # Check session TTL mid-session (not just at commit time)
+    # Session TTL check
     if _is_session_expired():
-        print("[RSI] Session expired. Run 'python3 scripts/rsi.py init' to start a new session.")
-        print("[RSI] Edits are blocked until session is active.")
+        print("[RSI] Session expired. Run 'python3 scripts/rsi.py init'.")
         sys.exit(1)
 
-    # Warn if session is expiring soon (within 1 hour)
     expiring_soon, minutes = _get_session_time_remaining()
     if expiring_soon:
-        print(f"[RSI] Warning: Session expires in {minutes} minute(s). Run 'python3 scripts/rsi.py init' to extend.")
+        print(f"[RSI] Session expires in {minutes}m. Run 'python3 scripts/rsi.py init' to extend.")
 
     rel = _relative_path(filepath)
-    read_files = _load_read_files()
 
-    # Check: was this file read in this session?
-    if rel not in read_files:
-        # Check if it's a new file (Write to non-existent path is OK)
+    # Read-before-edit gate
+    if rel not in _load_read_files():
         if Path(filepath).exists():
-            print(f"[RSI] File '{rel}' has not been read in this session.")
-            print(f"[RSI] Genchi Genbutsu: you must read a file before editing it.")
-            print(f"[RSI] Read the file first, then retry the edit.")
+            print(f"[RSI] BLOCKED: '{rel}' not read. Read it first.")
             sys.exit(1)
 
-    # Role-aware write permission check
+    # Role-aware check (worker can't touch constitution files)
     current_role = os.environ.get("RSI_ROLE", "overlord")
-    if current_role == "worker":
-        try:
-            from scripts.classify_file import classify_file
-            sensitivity = classify_file(rel)
-            if sensitivity == "constitution":
-                print(f"[RSI] BLOCKED: '{rel}' is constitution-level. Only overlord can modify.")
-                sys.exit(1)
-            if sensitivity == "guarded":
-                print(f"[RSI] Note: '{rel}' is guarded. This change will require overlord review.")
-        except ImportError:
-            pass
+    sensitivity = None
+    try:
+        from scripts.classify_file import classify_file
+        sensitivity = classify_file(rel)
+    except ImportError:
+        pass
 
-    # ---- DELEGATION GATE ----
-    # When MINIMAX_API_KEY is set, Claude is the overlord and MUST delegate
-    # implementation work to MiniMax. Editing guarded/open files directly
-    # without a delegation trail is blocked.
+    if current_role == "worker" and sensitivity == "constitution":
+        print(f"[RSI] BLOCKED: '{rel}' is constitution-level. Worker cannot modify.")
+        sys.exit(1)
+    elif current_role == "worker" and sensitivity == "guarded":
+        print(f"[RSI] Note: '{rel}' is guarded. Requires overlord review.")
+
+    # Delegation gate -- only when MINIMAX_API_KEY set and overlord role
     minimax_key = os.environ.get("MINIMAX_API_KEY", "")
-    if minimax_key and current_role != "worker":
-        try:
-            from scripts.classify_file import classify_file
-            sensitivity = classify_file(rel)
+    if minimax_key and current_role != "worker" and sensitivity in ("guarded", "open") and Path(filepath).exists():
+        rel_normalized = rel.replace("\\", "/")
+        if not _has_delegation_trail(rel_normalized) and not _has_override(rel_normalized):
+            print(f"[RSI] DELEGATION GATE BLOCKED: '{rel}' is {sensitivity}-level.")
+            print(f"[RSI] Delegate to MiniMax first:")
+            print(f"[RSI]   1. Write spec: .rsi/tasks/TASK-NNN.json")
+            print(f"[RSI]   2. python3 scripts/rsi.py delegate .rsi/tasks/TASK-NNN.json")
+            print(f"[RSI]   3. python3 scripts/rsi.py review-queue accept TASK-NNN --apply")
+            print(f"[RSI] Override: python3 scripts/rsi.py override {rel} --reason '...'")
+            sys.exit(1)
 
-            # Constitution files: overlord handles directly — always allowed
-            # Guarded/open files: must have delegation trail or override
-            if sensitivity in ("guarded", "open") and Path(filepath).exists():
-                # Normalize for cross-platform matching
-                rel_normalized = rel.replace("\\", "/")
-                if not _has_delegation_trail(rel_normalized) and not _has_override(rel_normalized):
-                    print(f"[RSI] DELEGATION GATE BLOCKED: '{rel}' is {sensitivity}-level.")
-                    print(f"[RSI] MINIMAX_API_KEY is set -- you are the overlord, not the worker.")
-                    print(f"[RSI] Delegate this work to MiniMax first:")
-                    print(f"[RSI]   1. Write task spec: .rsi/tasks/TASK-NNN.json")
-                    print(f"[RSI]   2. Delegate: python3 scripts/rsi.py delegate .rsi/tasks/TASK-NNN.json")
-                    print(f"[RSI]   3. Review:  python3 scripts/rsi.py review-queue show TASK-NNN")
-                    print(f"[RSI]   4. Accept:  python3 scripts/rsi.py review-queue accept TASK-NNN --apply")
-                    print(f"[RSI]")
-                    print(f"[RSI] If this is an emergency fix, create an override:")
-                    print(f"[RSI]   python3 scripts/rsi.py override {rel} --reason 'reason'")
-                    sys.exit(1)
-        except ImportError:
-            pass
-
-    # Surface relevant FAIL-index entries
+    # FAIL-index -- relevant entries only
     fail_entries = _get_relevant_fail_entries(filepath)
     if fail_entries:
-        print(f"[RSI] FAIL-index entries to consider while editing '{rel}':")
-        for entry in fail_entries[:5]:
+        print(f"[RSI] FAIL-index for '{rel}':")
+        for entry in fail_entries:
             print(entry)
 
-    # Review queue gate — warn if pending reviews exist
-    try:
-        pending_dir = MEMORY_ROOT / "reviews" / "pending"
-        if pending_dir.exists():
-            pending_count = len(list(pending_dir.glob("*.md")))
-            if pending_count > 0:
-                print(f"[RSI] JIDOKA: {pending_count} pending review(s). Consider draining the queue.")
-    except Exception:
-        pass
+    # Review queue warning
+    pending_dir = MEMORY_ROOT / "reviews" / "pending"
+    if pending_dir.exists():
+        pending = list(pending_dir.glob("*.md"))
+        if pending:
+            print(f"[RSI] JIDOKA: {len(pending)} pending review(s).")
 
 
 def handle_post_edit(tool_input: dict) -> None:
-    """PostToolUse handler for Edit/Write — record the edit and remind."""
     filepath = tool_input.get("file_path", "")
     if filepath:
-        rel = _relative_path(filepath)
-        _record_file_edited(rel)
+        _record_file_edited(_relative_path(filepath))
 
 
 def handle_pre_bash(tool_input: dict) -> None:
-    """PreToolUse handler for Bash — track git commits."""
     command = tool_input.get("command", "")
     if "git commit" in command and "--no-verify" in command:
-        print("[RSI] WARNING: --no-verify bypasses quality gates.")
-        print("[RSI] This violates Jidoka (Principle 5): stop and fix quality first.")
-        print("[RSI] Remove --no-verify and fix any failing checks.")
+        print("[RSI] BLOCKED: --no-verify bypasses quality gates.")
         sys.exit(1)
 
 
@@ -383,21 +365,12 @@ def handle_pre_bash(tool_input: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
-    """Dispatch hook based on command-line argument.
-
-    Usage:
-        echo '{"tool_input": {...}}' | python3 scripts/hooks.py pre-edit
-        echo '{"tool_input": {...}}' | python3 scripts/hooks.py post-edit
-        echo '{"tool_input": {...}}' | python3 scripts/hooks.py pre-read
-        echo '{"tool_input": {...}}' | python3 scripts/hooks.py pre-bash
-    """
     if len(sys.argv) < 2:
         print("Usage: hooks.py <pre-edit|post-edit|pre-read|pre-bash>", file=sys.stderr)
         sys.exit(1)
 
     action = sys.argv[1]
 
-    # Read tool input from stdin
     try:
         raw = sys.stdin.read()
         if raw.strip():
@@ -419,7 +392,7 @@ def main():
     if handler:
         handler(tool_input)
     else:
-        print(f"Unknown hook action: {action}", file=sys.stderr)
+        print(f"Unknown action: {action}", file=sys.stderr)
         sys.exit(1)
 
 
