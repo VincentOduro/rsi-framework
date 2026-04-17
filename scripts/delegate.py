@@ -1061,7 +1061,11 @@ def cmd_delegate(args):
         print(f"ERROR: Task file not found: {task_file}", file=sys.stderr)
         sys.exit(1)
 
-    task = json.loads(task_file.read_text(encoding="utf-8"))
+    try:
+        task = json.loads(task_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"ERROR: Task file is not valid JSON ({task_file}): {exc}", file=sys.stderr)
+        sys.exit(1)
 
     # Validate
     issues = validate_task(task)

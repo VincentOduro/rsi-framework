@@ -156,8 +156,16 @@ def cmd_accept(args):
 
         if result_file.exists() and task_file.exists():
             print("Applying from stored result (no API call)...")
-            task = json.loads(task_file.read_text(encoding="utf-8"))
-            result = json.loads(result_file.read_text(encoding="utf-8"))
+            try:
+                task = json.loads(task_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                print(f"ERROR: Task JSON malformed ({task_file}): {exc}", file=sys.stderr)
+                return
+            try:
+                result = json.loads(result_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                print(f"ERROR: Result JSON malformed ({result_file}): {exc}", file=sys.stderr)
+                return
 
             # Import and call apply_changes directly
             sys.path.insert(0, str(PROJECT_ROOT))
