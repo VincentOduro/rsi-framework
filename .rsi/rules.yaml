@@ -1,0 +1,59 @@
+# .rsi/rules.yaml — Declarative enforcement rules
+# Inspired by AgentSpec (ICSE 2026): trigger -> condition -> action
+#
+# Adding a new rule = adding YAML, not editing Python.
+# hooks.py evaluates these rules on every tool call.
+#
+# Condition variables available:
+#   file_exists       — target file exists on disk
+#   file_was_read     — file recorded as read in this session
+#   session_expired   — session TTL has elapsed
+#   role              — current RSI_ROLE (overlord/worker)
+#   sensitivity       — file classification (constitution/guarded/open)
+#   minimax_key_set   — MINIMAX_API_KEY env var is set
+#   has_delegation    — accepted review exists for this file
+#   has_override      — non-expired override exists for this file
+#   command           — bash command string (for pre_bash trigger)
+
+rules:
+  - id: R01
+    name: "Session TTL"
+    trigger: pre_edit
+    condition: "session_expired"
+    action: block
+    message: "Session expired. Run 'python3 scripts/rsi.py init'."
+
+  - id: R02
+    name: "Read before edit"
+    trigger: pre_edit
+    condition: "file_exists and not file_was_read"
+    action: block
+    message: "File '{file}' not read. Read it first."
+
+  - id: R03
+    name: "Constitution guard"
+    trigger: pre_edit
+    condition: "role == 'worker' and sensitivity == 'constitution'"
+    action: block
+    message: "Constitution file. Worker cannot modify."
+
+  - id: R04
+    name: "Delegation gate"
+    trigger: pre_edit
+    condition: "minimax_key_set and role != 'worker' and sensitivity in ('guarded', 'open') and file_exists and not has_delegation and not has_override"
+    action: block
+    message: "Delegate to MiniMax first. Override: rsi.py override {file} --reason '...'"
+
+  - id: R05
+    name: "No --no-verify"
+    trigger: pre_bash
+    condition: "'--no-verify' in command"
+    action: block
+    message: "--no-verify bypasses quality gates."
+
+  - id: R06
+    name: "Guarded file notice"
+    trigger: pre_edit
+    condition: "role == 'worker' and sensitivity == 'guarded'"
+    action: warn
+    message: "Guarded file. Requires overlord review."

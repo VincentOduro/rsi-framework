@@ -282,55 +282,71 @@ def handle_pre_read(tool_input: dict) -> None:
         _record_file_read(_relative_path(filepath))
 
 
-def handle_pre_edit(tool_input: dict) -> None:
-    filepath = tool_input.get("file_path", "")
-    if not filepath:
-        return
-
-    # Session TTL check
-    if _is_session_expired():
-        print("[RSI] Session expired. Run 'python3 scripts/rsi.py init'.")
-        sys.exit(1)
-
-    expiring_soon, minutes = _get_session_time_remaining()
-    if expiring_soon:
-        print(f"[RSI] Session expires in {minutes}m. Run 'python3 scripts/rsi.py init' to extend.")
-
+def _build_edit_context(filepath: str) -> dict:
+    """Build context dict for rule evaluation on pre_edit trigger."""
     rel = _relative_path(filepath)
+    rel_normalized = rel.replace("\\", "/")
 
-    # Read-before-edit gate
-    if rel not in _load_read_files():
-        if Path(filepath).exists():
-            print(f"[RSI] BLOCKED: '{rel}' not read. Read it first.")
-            sys.exit(1)
-
-    # Role-aware check (worker can't touch constitution files)
-    current_role = os.environ.get("RSI_ROLE", "overlord")
-    sensitivity = None
+    # Classify file sensitivity
+    sensitivity = "guarded"  # safe default
     try:
         from scripts.classify_file import classify_file
         sensitivity = classify_file(rel)
     except ImportError:
         pass
 
-    if current_role == "worker" and sensitivity == "constitution":
-        print(f"[RSI] BLOCKED: '{rel}' is constitution-level. Worker cannot modify.")
-        sys.exit(1)
-    elif current_role == "worker" and sensitivity == "guarded":
-        print(f"[RSI] Note: '{rel}' is guarded. Requires overlord review.")
+    return {
+        "file": rel,
+        "file_exists": Path(filepath).exists(),
+        "file_was_read": rel in _load_read_files(),
+        "session_expired": _is_session_expired(),
+        "role": os.environ.get("RSI_ROLE", "overlord"),
+        "sensitivity": sensitivity,
+        "minimax_key_set": bool(os.environ.get("MINIMAX_API_KEY", "")),
+        "has_delegation": _has_delegation_trail(rel_normalized),
+        "has_override": _has_override(rel_normalized),
+    }
 
-    # Delegation gate -- only when MINIMAX_API_KEY set and overlord role
-    minimax_key = os.environ.get("MINIMAX_API_KEY", "")
-    if minimax_key and current_role != "worker" and sensitivity in ("guarded", "open") and Path(filepath).exists():
-        rel_normalized = rel.replace("\\", "/")
-        if not _has_delegation_trail(rel_normalized) and not _has_override(rel_normalized):
-            print(f"[RSI] DELEGATION GATE BLOCKED: '{rel}' is {sensitivity}-level.")
-            print(f"[RSI] Delegate to MiniMax first:")
-            print(f"[RSI]   1. Write spec: .rsi/tasks/TASK-NNN.json")
-            print(f"[RSI]   2. python3 scripts/rsi.py delegate .rsi/tasks/TASK-NNN.json")
-            print(f"[RSI]   3. python3 scripts/rsi.py review-queue accept TASK-NNN --apply")
-            print(f"[RSI] Override: python3 scripts/rsi.py override {rel} --reason '...'")
+
+def handle_pre_edit(tool_input: dict) -> None:
+    filepath = tool_input.get("file_path", "")
+    if not filepath:
+        return
+
+    # Build context once, evaluate rules against it
+    context = _build_edit_context(filepath)
+    rel = context["file"]
+
+    # Try declarative rules engine first
+    try:
+        from scripts.rules_engine import get_engine
+        engine = get_engine()
+        allowed, messages = engine.evaluate("pre_edit", context)
+        for msg in messages:
+            print(msg)
+        if not allowed:
             sys.exit(1)
+    except ImportError:
+        # Fallback: hardcoded rules (backward compatibility)
+        if context["session_expired"]:
+            print("[RSI] Session expired. Run 'python3 scripts/rsi.py init'.")
+            sys.exit(1)
+        if context["file_exists"] and not context["file_was_read"]:
+            print(f"[RSI] BLOCKED: '{rel}' not read. Read it first.")
+            sys.exit(1)
+        if context["role"] == "worker" and context["sensitivity"] == "constitution":
+            print(f"[RSI] BLOCKED: '{rel}' is constitution-level.")
+            sys.exit(1)
+        if context["minimax_key_set"] and context["role"] != "worker" and \
+           context["sensitivity"] in ("guarded", "open") and context["file_exists"] and \
+           not context["has_delegation"] and not context["has_override"]:
+            print(f"[RSI] DELEGATION GATE BLOCKED: '{rel}'.")
+            sys.exit(1)
+
+    # Session expiry warning (non-blocking)
+    expiring_soon, minutes = _get_session_time_remaining()
+    if expiring_soon:
+        print(f"[RSI] Session expires in {minutes}m.")
 
     # FAIL-index -- relevant entries only
     fail_entries = _get_relevant_fail_entries(filepath)
@@ -355,9 +371,21 @@ def handle_post_edit(tool_input: dict) -> None:
 
 def handle_pre_bash(tool_input: dict) -> None:
     command = tool_input.get("command", "")
-    if "git commit" in command and "--no-verify" in command:
-        print("[RSI] BLOCKED: --no-verify bypasses quality gates.")
-        sys.exit(1)
+    context = {"command": command}
+
+    try:
+        from scripts.rules_engine import get_engine
+        engine = get_engine()
+        allowed, messages = engine.evaluate("pre_bash", context)
+        for msg in messages:
+            print(msg)
+        if not allowed:
+            sys.exit(1)
+    except ImportError:
+        # Fallback
+        if "git commit" in command and "--no-verify" in command:
+            print("[RSI] BLOCKED: --no-verify bypasses quality gates.")
+            sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

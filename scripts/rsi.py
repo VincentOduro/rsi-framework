@@ -306,6 +306,11 @@ def cmd_review_queue(args: list[str]) -> None:
     _run("review_queue.py", args)
 
 
+def cmd_trust(args: list[str]) -> None:
+    """Worker trust scoring."""
+    _run("trust.py", args)
+
+
 def cmd_classify(args: list[str]) -> None:
     """Classify file sensitivity."""
     _run("classify_file.py", args)
@@ -387,6 +392,7 @@ COMMANDS = {
     "auto": (cmd_auto, "Auto-route: decompose -> delegate -> review -> apply"),
     "review-queue": (cmd_review_queue, "Manage review queue (Jidoka)"),
     "classify": (cmd_classify, "Check file sensitivity level"),
+    "trust": (cmd_trust, "Worker trust scoring (per-task-type accept rate)"),
     "override": (cmd_override, "Emergency override for delegation gate (1hr TTL)"),
     "adapt": (cmd_adapt, "Generate platform-specific enforcement files"),
     "ci": (cmd_ci, "CI gate checks"),

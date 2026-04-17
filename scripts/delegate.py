@@ -735,12 +735,13 @@ def log_delegation(task: dict, result: dict, verdict: str = "PENDING") -> None:
 # ---------------------------------------------------------------------------
 
 def delegate_parallel(task_files: list[str], max_workers: int = 3) -> list[dict]:
-    """Send independent tasks to MiniMax in parallel. 3x throughput.
+    """Send tasks to MiniMax with DAG-aware parallel execution.
 
-    Tasks with overlapping files_to_modify run sequentially (same group).
-    Tasks with no file overlap run in parallel (different groups).
+    Respects both explicit depends_on and implicit file overlap dependencies.
+    Tasks are sorted into execution layers — each layer runs in parallel,
+    layers execute sequentially.
 
-    Inspired by ccswarm's git worktree isolation pattern.
+    Inspired by ccswarm (parallelism) and OpenMultiAgent (task DAG).
     """
     import concurrent.futures
 
@@ -749,7 +750,6 @@ def delegate_parallel(task_files: list[str], max_workers: int = 3) -> list[dict]
     for tf in task_files:
         path = Path(tf)
         if not path.exists():
-            # Try as relative to .rsi/tasks/
             path = TASKS_DIR / tf
         if not path.exists():
             print(f"  Skip (not found): {tf}", file=sys.stderr)
@@ -762,31 +762,161 @@ def delegate_parallel(task_files: list[str], max_workers: int = 3) -> list[dict]
     if not tasks:
         return []
 
-    # Group by file overlap — overlapping tasks go in same group (sequential)
-    groups = _group_by_file_overlap(tasks)
-    print(f"[RSI] Parallel delegation: {len(tasks)} tasks in {len(groups)} group(s)")
+    # Build DAG and sort into execution layers
+    dag = _build_dag(tasks)
+    cycle = _detect_cycle(dag)
+    if cycle:
+        print(f"[RSI] ERROR: Dependency cycle detected: {cycle}", file=sys.stderr)
+        # Fall back to sequential
+        layers = [[t["id"] for t in tasks]]
+    else:
+        layers = _topological_layers(dag)
+
+    task_map = {t["id"]: t for t in tasks}
+    print(f"[RSI] Parallel delegation: {len(tasks)} tasks, {len(layers)} layer(s)")
+    for i, layer in enumerate(layers):
+        print(f"  Layer {i}: {', '.join(layer)}")
 
     all_results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-        # Submit one future per group — tasks within a group run sequentially
-        futures = {}
-        for i, group in enumerate(groups):
-            future = pool.submit(_execute_group, group, i + 1, len(groups))
-            futures[future] = group
 
-        for future in concurrent.futures.as_completed(futures):
-            group = futures[future]
-            try:
-                group_results = future.result()
-                all_results.extend(group_results)
-            except Exception as e:
-                for task in group:
-                    all_results.append({
-                        "task_id": task.get("id"), "status": "error",
-                        "error": str(e),
-                    })
+    # Execute layer by layer — within each layer, tasks run in parallel
+    for layer_idx, layer_ids in enumerate(layers):
+        layer_tasks = [task_map[tid] for tid in layer_ids if tid in task_map]
+        if not layer_tasks:
+            continue
+
+        print(f"\n[RSI] Executing layer {layer_idx + 1}/{len(layers)} ({len(layer_tasks)} tasks)")
+
+        if len(layer_tasks) == 1:
+            # Single task — no need for thread pool
+            results = _execute_group(layer_tasks, layer_idx + 1, len(layers))
+            all_results.extend(results)
+        else:
+            # Multiple tasks — run in parallel
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = {}
+                for task in layer_tasks:
+                    future = pool.submit(_execute_single, task)
+                    futures[future] = task
+
+                for future in concurrent.futures.as_completed(futures):
+                    task = futures[future]
+                    try:
+                        result = future.result()
+                        all_results.append(result)
+                    except Exception as e:
+                        all_results.append({
+                            "task_id": task.get("id"), "status": "error",
+                            "error": str(e),
+                        })
 
     return all_results
+
+
+def _execute_single(task: dict) -> dict:
+    """Execute a single task (for parallel dispatch)."""
+    task_id = task.get("id", "?")
+    result = call_worker(task)
+    if result.get("error"):
+        return {"task_id": task_id, "status": "failed", "error": result["error"]}
+
+    write_review(task, result)
+    log_delegation(task, result, "PENDING")
+    return {
+        "task_id": task_id, "status": "pending",
+        "changes": list(result.get("changes", {}).keys()),
+        "proof_wrong": result.get("proof_wrong", ""),
+    }
+
+
+def _build_dag(tasks: list[dict]) -> dict[str, set[str]]:
+    """Build dependency graph from depends_on + implicit file overlap.
+
+    Inspired by OpenMultiAgent's task DAG resolution.
+
+    Returns: {task_id: set of dependency task_ids}
+    """
+    task_ids = {t["id"] for t in tasks}
+    dag: dict[str, set[str]] = {t["id"]: set() for t in tasks}
+
+    for task in tasks:
+        tid = task["id"]
+
+        # Explicit depends_on
+        for dep in task.get("depends_on", []):
+            if dep in task_ids:
+                dag[tid].add(dep)
+
+        # Implicit: file overlap with earlier tasks
+        task_files = set(task.get("files_to_modify", []))
+        for other in tasks:
+            if other["id"] == tid:
+                continue
+            other_files = set(other.get("files_to_modify", []))
+            if task_files & other_files:
+                # Both modify same file — later one depends on earlier
+                # Use task ID ordering as tiebreaker
+                if other["id"] < tid:
+                    dag[tid].add(other["id"])
+
+    return dag
+
+
+def _detect_cycle(dag: dict[str, set[str]]) -> list[str] | None:
+    """Detect cycles in the DAG. Returns cycle path or None."""
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {k: WHITE for k in dag}
+    path: list[str] = []
+
+    def dfs(node: str) -> bool:
+        color[node] = GRAY
+        path.append(node)
+        for dep in dag.get(node, set()):
+            if dep not in color:
+                continue
+            if color[dep] == GRAY:
+                cycle_start = path.index(dep)
+                return True
+            if color[dep] == WHITE and dfs(dep):
+                return True
+        path.pop()
+        color[node] = BLACK
+        return False
+
+    for node in dag:
+        if color[node] == WHITE:
+            if dfs(node):
+                return path
+    return None
+
+
+def _topological_layers(dag: dict[str, set[str]]) -> list[list[str]]:
+    """Topological sort into execution layers.
+
+    Layer 0: tasks with no dependencies (run first, in parallel)
+    Layer 1: tasks depending only on layer 0 (run after layer 0, in parallel)
+    etc.
+
+    Returns: list of layers, each layer is a list of task IDs.
+    """
+    remaining = {k: set(v) for k, v in dag.items()}
+    layers: list[list[str]] = []
+    completed: set[str] = set()
+
+    while remaining:
+        # Find tasks whose dependencies are all completed
+        layer = [tid for tid, deps in remaining.items() if deps <= completed]
+        if not layer:
+            # No progress — remaining tasks have unresolvable deps
+            # Put them all in one final layer
+            layers.append(list(remaining.keys()))
+            break
+        layers.append(sorted(layer))
+        completed.update(layer)
+        for tid in layer:
+            del remaining[tid]
+
+    return layers
 
 
 def _group_by_file_overlap(tasks: list[dict]) -> list[list[dict]]:
