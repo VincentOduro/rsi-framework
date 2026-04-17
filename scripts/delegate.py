@@ -538,6 +538,21 @@ def call_worker(task: dict, revision_instruction: str = "") -> dict:
         if hasattr(response, "usage") and response.usage:
             tokens = (response.usage.prompt_tokens or 0) + (response.usage.completion_tokens or 0)
 
+        # Fail fast on truncation — if the model hit max_tokens, the JSON repair
+        # path silently produces partial file contents. Surface this so the
+        # caller can retry with a higher budget or decompose the task.
+        finish_reason = getattr(response.choices[0], "finish_reason", None)
+        if finish_reason == "length":
+            return {
+                "error": (
+                    f"Worker hit max_tokens limit ({config.get('max_tokens')}); response was truncated. "
+                    f"Increase worker_api.max_tokens in .rsi/architecture.yaml or decompose the task."
+                ),
+                "raw_response": raw[:2000],
+                "tokens_used": tokens,
+                "latency_seconds": latency,
+            }
+
         # Robust JSON extraction — handles all common LLM output quirks
         parsed = _extract_json(raw)
         if parsed is None:
