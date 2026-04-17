@@ -35,6 +35,7 @@ For raw function calling (MiniMax, etc.):
 """
 
 import json
+import shlex
 import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -237,9 +238,18 @@ class RSISession:
                 "Remove --no-verify and fix any failing checks."
             )
 
+        # Tokenize with shlex so we can drop shell=True — subprocess runs the
+        # command directly without spawning a shell. Shell features (pipes,
+        # redirects, glob expansion) are not supported and must be wrapped in
+        # a script if the caller needs them.
+        try:
+            argv = shlex.split(command, posix=True)
+        except ValueError as exc:
+            raise RSIError(f"[RSI] Could not parse command: {exc}") from exc
+        if not argv:
+            raise RSIError("[RSI] Empty command.")
         result = subprocess.run(
-            command,
-            shell=True,
+            argv,
             cwd=self.project_root,
             capture_output=True,
             text=True,

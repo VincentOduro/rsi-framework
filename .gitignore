@@ -8,3 +8,14 @@ __pycache__/
 *.swp
 *.swo
 *~
+
+# RSI runtime state (not source, written during normal operation)
+.memory/.preflight_state.json
+.memory/.session_timestamp
+.memory/metrics/
+.memory/reviews/
+.rsi/tasks/
+.rsi/overrides/
+
+# Local-only Claude Code config
+.claude/settings.local.json
