@@ -117,6 +117,7 @@ def test_shell_integrator_check_edit_allowed_new_file(tmp_path):
     """ShellIntegrator allows editing new files."""
     from scripts.adapters.shell_integrator import ShellIntegrator
     import scripts.hooks as hooks
+    from unittest.mock import patch
 
     # Create a temp state
     state_file = tmp_path / ".preflight_state.json"
@@ -124,13 +125,16 @@ def test_shell_integrator_check_edit_allowed_new_file(tmp_path):
 
     original_state = hooks.STATE_FILE
     hooks.STATE_FILE = state_file
+    hooks._cache.clear()
 
     try:
-        integrator = ShellIntegrator(project_root=tmp_path)
-        # New file should be allowed without being read
-        new_file = tmp_path / "new.py"
-        result = integrator.check_edit_allowed(str(new_file))
-        assert result == True
+        # Mock session check — shell_integrator imports _is_session_expired directly
+        import scripts.adapters.shell_integrator as si
+        with patch.object(si, '_is_session_expired', return_value=False):
+            integrator = ShellIntegrator(project_root=tmp_path)
+            new_file = tmp_path / "new.py"
+            result = integrator.check_edit_allowed(str(new_file))
+            assert result == True
     finally:
         hooks.STATE_FILE = original_state
 

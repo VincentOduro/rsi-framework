@@ -27,6 +27,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 TASKS_DIR = PROJECT_ROOT / ".rsi" / "tasks"
 REVIEWS_DIR = PROJECT_ROOT / ".memory" / "reviews"
 PENDING_DIR = REVIEWS_DIR / "pending"
+RESULTS_DIR = REVIEWS_DIR / "results"
 DELEGATIONS_LOG = PROJECT_ROOT / ".memory" / "metrics" / "delegations.jsonl"
 
 # Architecture config
@@ -36,6 +37,7 @@ ARCHITECTURE_FILE = PROJECT_ROOT / ".rsi" / "architecture.yaml"
 def _ensure_dirs():
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
     PENDING_DIR.mkdir(parents=True, exist_ok=True)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     (REVIEWS_DIR / "accepted").mkdir(parents=True, exist_ok=True)
     (REVIEWS_DIR / "rejected").mkdir(parents=True, exist_ok=True)
     DELEGATIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -128,8 +130,22 @@ def validate_task(task: dict) -> list[str]:
 
     # Files to read must exist
     for filepath in task.get("files_to_read", []):
-        if not (PROJECT_ROOT / filepath).exists():
-            issues.append(f"File to read does not exist: {filepath}")
+        # Strip line-range suffix for existence check
+        clean_path = filepath.split(":")[0] if ":" in filepath and filepath.split(":")[-1][0:1].isdigit() else filepath
+        if not (PROJECT_ROOT / clean_path).exists():
+            issues.append(f"File to read does not exist: {clean_path}")
+
+    # Output size warning — MiniMax has ~16K output token limit
+    MAX_OUTPUT_LINES = 500
+    for filepath in task.get("files_to_modify", []):
+        full = PROJECT_ROOT / filepath
+        if full.exists():
+            line_count = full.read_text().count("\n") + 1
+            if line_count > MAX_OUTPUT_LINES:
+                issues.append(
+                    f"WARNING: {filepath} has {line_count} lines (>{MAX_OUTPUT_LINES}). "
+                    f"MiniMax may truncate output. Decompose into smaller tasks or write directly."
+                )
 
     # Unique task ID — skip if we're delegating the file that's already in .rsi/tasks/
     # (the overlord writes the spec there, then calls delegate.py with that same path)
@@ -540,14 +556,37 @@ def call_worker(task: dict, revision_instruction: str = "") -> dict:
 # Result handling
 # ---------------------------------------------------------------------------
 
+def save_result(task_id: str, result: dict) -> Path:
+    """Store worker result as JSON for later apply without re-calling API."""
+    _ensure_dirs()
+    result_path = RESULTS_DIR / f"{task_id}.json"
+    # Don't store raw_response (large, not needed for apply)
+    stored = {k: v for k, v in result.items() if k != "raw_response"}
+    result_path.write_text(json.dumps(stored, indent=2, ensure_ascii=False))
+    return result_path
+
+
+def load_result(task_id: str) -> dict | None:
+    """Load stored worker result. Returns None if not found."""
+    result_path = RESULTS_DIR / f"{task_id}.json"
+    if not result_path.exists():
+        return None
+    try:
+        return json.loads(result_path.read_text())
+    except (json.JSONDecodeError, IOError):
+        return None
+
+
 def write_review(task: dict, result: dict) -> Path:
     """Write worker result to .memory/reviews/pending/ for overlord review.
 
-    Lean format: references task spec instead of duplicating fields.
-    Only includes worker output (proof-wrong, changes, notes).
+    Also stores the structured result JSON for later apply without re-calling API.
     """
     _ensure_dirs()
     task_id = task["id"]
+
+    # Store structured result for apply_changes to use later
+    save_result(task_id, result)
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     # List changed files with line counts, not full contents
@@ -581,22 +620,28 @@ Tokens: {result.get('tokens_used', '?')} | Latency: {result.get('latency_seconds
 
 
 def apply_changes(task: dict, result: dict) -> list[str]:
-    """Apply worker changes to disk. Returns list of applied files.
+    """Apply worker changes to disk with quality ratchet.
 
-    Handles MiniMax quirk: double-escaped newlines (\\\\n instead of \\n).
-    JSON requires \\n for newlines in strings, but MiniMax sometimes
-    double-escapes them, producing literal backslash-n in the output file.
+    Quality ratchet (inspired by toryo): after writing files, run self_verify.
+    If verify passes -> checkpoint commit. If fails -> revert all changes.
+    Quality only goes up, never down.
+
+    Also handles MiniMax double-escaped newlines.
     """
     applied = []
+    original_contents = {}
+
     for filepath, content in result.get("changes", {}).items():
         full_path = PROJECT_ROOT / filepath
         full_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Store original for revert
+        if full_path.exists():
+            original_contents[filepath] = full_path.read_text()
+
         # Fix double-escaped newlines from MiniMax
-        # If content has literal \n but no actual newlines, unescape
         if "\\n" in content and "\n" not in content:
             content = content.replace("\\n", "\n")
-        # Also fix \\t -> \t if same pattern
         if "\\t" in content and "\t" not in content:
             content = content.replace("\\t", "\t")
 
@@ -606,7 +651,66 @@ def apply_changes(task: dict, result: dict) -> list[str]:
 
         full_path.write_text(content, encoding="utf-8")
         applied.append(filepath)
-    return applied
+
+    if not applied:
+        return []
+
+    # Quality ratchet: verify then checkpoint or revert
+    verify_ok = _run_verify(applied)
+
+    if verify_ok:
+        task_id = task.get("id", "unknown")
+        _git_checkpoint(task_id, applied)
+        return applied
+    else:
+        # Revert all changes
+        _git_revert(applied, original_contents)
+        return []
+
+
+def _run_verify(files: list[str]) -> bool:
+    """Run self_verify on changed files. Returns True if passed."""
+    import subprocess as sp
+    result = sp.run(
+        [sys.executable, "scripts/self_verify.py", "--files"] + files + ["--skip-tests"],
+        cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode == 0:
+        print("[RSI] Quality ratchet: VERIFY PASSED")
+        return True
+    else:
+        print("[RSI] Quality ratchet: VERIFY FAILED - reverting changes")
+        # Show first few lines of error
+        for line in result.stdout.split("\n")[-5:]:
+            if line.strip():
+                print(f"  {line.strip()}")
+        return False
+
+
+def _git_checkpoint(task_id: str, files: list[str]) -> None:
+    """Create a checkpoint commit for accepted changes."""
+    import subprocess as sp
+    try:
+        sp.run(["git", "add"] + files, cwd=PROJECT_ROOT, capture_output=True, timeout=10)
+        sp.run(
+            ["git", "commit", "-m", f"rsi-checkpoint: {task_id}", "--no-verify"],
+            cwd=PROJECT_ROOT, capture_output=True, timeout=10,
+        )
+        print(f"[RSI] Quality ratchet: checkpoint commit (rsi-checkpoint: {task_id})")
+    except Exception:
+        pass  # Non-critical — checkpoint is best-effort
+
+
+def _git_revert(files: list[str], originals: dict[str, str]) -> None:
+    """Revert changed files to their original content."""
+    for filepath in files:
+        full_path = PROJECT_ROOT / filepath
+        if filepath in originals:
+            full_path.write_text(originals[filepath])
+            print(f"[RSI] Reverted: {filepath}")
+        elif full_path.exists():
+            full_path.unlink()
+            print(f"[RSI] Removed new file: {filepath}")
 
 
 def log_delegation(task: dict, result: dict, verdict: str = "PENDING") -> None:
@@ -624,6 +728,111 @@ def log_delegation(task: dict, result: dict, verdict: str = "PENDING") -> None:
     }
     with open(DELEGATIONS_LOG, "a") as f:
         f.write(json.dumps(event) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Parallel delegation (inspired by ccswarm)
+# ---------------------------------------------------------------------------
+
+def delegate_parallel(task_files: list[str], max_workers: int = 3) -> list[dict]:
+    """Send independent tasks to MiniMax in parallel. 3x throughput.
+
+    Tasks with overlapping files_to_modify run sequentially (same group).
+    Tasks with no file overlap run in parallel (different groups).
+
+    Inspired by ccswarm's git worktree isolation pattern.
+    """
+    import concurrent.futures
+
+    # Load all task specs
+    tasks = []
+    for tf in task_files:
+        path = Path(tf)
+        if not path.exists():
+            # Try as relative to .rsi/tasks/
+            path = TASKS_DIR / tf
+        if not path.exists():
+            print(f"  Skip (not found): {tf}", file=sys.stderr)
+            continue
+        try:
+            tasks.append(json.loads(path.read_text()))
+        except json.JSONDecodeError:
+            print(f"  Skip (invalid JSON): {tf}", file=sys.stderr)
+
+    if not tasks:
+        return []
+
+    # Group by file overlap — overlapping tasks go in same group (sequential)
+    groups = _group_by_file_overlap(tasks)
+    print(f"[RSI] Parallel delegation: {len(tasks)} tasks in {len(groups)} group(s)")
+
+    all_results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+        # Submit one future per group — tasks within a group run sequentially
+        futures = {}
+        for i, group in enumerate(groups):
+            future = pool.submit(_execute_group, group, i + 1, len(groups))
+            futures[future] = group
+
+        for future in concurrent.futures.as_completed(futures):
+            group = futures[future]
+            try:
+                group_results = future.result()
+                all_results.extend(group_results)
+            except Exception as e:
+                for task in group:
+                    all_results.append({
+                        "task_id": task.get("id"), "status": "error",
+                        "error": str(e),
+                    })
+
+    return all_results
+
+
+def _group_by_file_overlap(tasks: list[dict]) -> list[list[dict]]:
+    """Group tasks by file overlap. Non-overlapping tasks go in separate groups."""
+    groups: list[list[dict]] = []
+    used_files: list[set[str]] = []
+
+    for task in tasks:
+        files = set(task.get("files_to_modify", []))
+        placed = False
+
+        for i, group_files in enumerate(used_files):
+            if files & group_files:  # Overlap — add to this group
+                groups[i].append(task)
+                used_files[i] |= files
+                placed = True
+                break
+
+        if not placed:
+            groups.append([task])
+            used_files.append(files)
+
+    return groups
+
+
+def _execute_group(group: list[dict], group_num: int, total_groups: int) -> list[dict]:
+    """Execute a group of tasks sequentially (they share files)."""
+    results = []
+    for task in group:
+        task_id = task.get("id", "?")
+        print(f"  [Group {group_num}/{total_groups}] {task_id}: {task.get('description', '')[:50]}")
+
+        result = call_worker(task)
+        if result.get("error"):
+            results.append({"task_id": task_id, "status": "failed", "error": result["error"]})
+            continue
+
+        write_review(task, result)
+        log_delegation(task, result, "PENDING")
+        results.append({
+            "task_id": task_id, "status": "pending",
+            "changes": list(result.get("changes", {}).keys()),
+            "proof_wrong": result.get("proof_wrong", ""),
+        })
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -719,11 +928,26 @@ def main():
     parser.add_argument("--apply", action="store_true", help="Apply changes (default: dry-run)")
     parser.add_argument("--revise", help="Revision instruction for the worker")
     parser.add_argument("--history", action="store_true", help="Show delegation history")
+    parser.add_argument("--parallel", nargs="*", help="Delegate multiple tasks in parallel")
+    parser.add_argument("--workers", type=int, default=3, help="Max parallel workers (default: 3)")
 
     args = parser.parse_args()
 
     if args.history:
         cmd_history(args)
+    elif args.parallel is not None:
+        # --parallel with explicit files, or glob from .rsi/tasks/
+        task_files = args.parallel
+        if not task_files:
+            task_files = [str(f) for f in sorted(TASKS_DIR.glob("*.json"))]
+        if not task_files:
+            print("No task files found.", file=sys.stderr)
+            sys.exit(1)
+        results = delegate_parallel(task_files, max_workers=args.workers)
+        print(f"\nParallel delegation complete: {len(results)} tasks")
+        for r in results:
+            status = r.get("status", "?")
+            print(f"  {r.get('task_id', '?')}: {status}")
     elif args.task_file:
         task_path = Path(args.task_file)
         if not task_path.exists() or not task_path.is_file():

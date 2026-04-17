@@ -6,12 +6,23 @@ from pathlib import Path
 
 def _setup_hooks(tmp_path):
     import scripts.hooks as h
+    from datetime import datetime, timezone
     h.PROJECT_ROOT = tmp_path
     h.MEMORY_ROOT = tmp_path / ".memory"
     h.STATE_FILE = tmp_path / ".memory" / ".preflight_state.json"
+    h.SESSION_FILE = tmp_path / ".memory" / ".session_timestamp"
     h.FAIL_INDEX_FILE = tmp_path / ".memory" / "technical" / "FAIL-index.md"
+    h.ACCEPTED_DIR = tmp_path / ".memory" / "reviews" / "accepted"
+    h.OVERRIDES_DIR = tmp_path / ".rsi" / "overrides"
     (tmp_path / ".memory").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".memory" / "technical").mkdir(parents=True, exist_ok=True)
+    # Create valid session so TTL check passes
+    h.SESSION_FILE.write_text(json.dumps({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "ttl_hours": 24,
+    }))
+    # Clear per-invocation cache
+    h._cache.clear()
     return h
 
 
@@ -46,8 +57,9 @@ def test_pre_edit_blocks_unread_file(tmp_path):
         assert e.code == 1
 
 
-def test_pre_edit_allows_read_file(tmp_path):
+def test_pre_edit_allows_read_file(tmp_path, monkeypatch):
     h = _setup_hooks(tmp_path)
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
     src = tmp_path / "src" / "main.py"
     src.parent.mkdir(parents=True, exist_ok=True)
     src.write_text("x = 1")
@@ -55,6 +67,7 @@ def test_pre_edit_allows_read_file(tmp_path):
     # Record the file as read first
     rel = str(src.relative_to(tmp_path))
     h._record_file_read(rel)
+    h._cache.clear()  # Re-read state after recording
 
     # Should not raise
     h.handle_pre_edit({"file_path": str(src)})

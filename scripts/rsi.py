@@ -84,6 +84,12 @@ def cmd_init(args: list[str]) -> None:
         record("session_start")
     except ImportError:
         pass
+    # Session brief — compound learning from .memory/
+    try:
+        from scripts.session_brief import generate_brief
+        print(generate_brief())
+    except ImportError:
+        pass
 
 
 def cmd_capture(args: list[str]) -> None:

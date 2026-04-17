@@ -136,17 +136,30 @@ def cmd_accept(args):
     except ValueError:
         print(f"Moved to: {dest}")
 
-    # Apply changes if task file exists and --apply
+    # Apply changes from stored result (never re-calls MiniMax API)
     if args.apply:
         task_file = TASKS_DIR / f"{args.task_id}.json"
-        if task_file.exists():
+        result_file = REVIEWS_DIR / "results" / f"{args.task_id}.json"
+
+        if result_file.exists() and task_file.exists():
+            print("Applying from stored result (no API call)...")
             task = json.loads(task_file.read_text())
-            print("Applying changes...")
-            import subprocess
-            subprocess.run(
-                [sys.executable, "scripts/delegate.py", str(task_file), "--apply"],
-                cwd=PROJECT_ROOT,
-            )
+            result = json.loads(result_file.read_text())
+
+            # Import and call apply_changes directly
+            sys.path.insert(0, str(PROJECT_ROOT))
+            from scripts.delegate import apply_changes
+            applied = apply_changes(task, result)
+            if applied:
+                print(f"Applied: {', '.join(applied)}")
+            else:
+                print("No changes applied (verify failed or empty result)")
+        elif task_file.exists():
+            print(f"WARNING: No stored result for {args.task_id}.")
+            print(f"Result file missing: {result_file}")
+            print(f"Re-run delegation: python3 scripts/rsi.py delegate {task_file}")
+        else:
+            print(f"Task file not found: {task_file}")
 
 
 def cmd_reject(args):

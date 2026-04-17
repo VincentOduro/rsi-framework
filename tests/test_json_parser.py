@@ -144,14 +144,20 @@ def test_think_tags_with_json_inside():
 
 def test_apply_changes_unescapes_newlines(tmp_path):
     """apply_changes should convert literal \\n to actual newlines."""
+    from unittest.mock import patch
     import scripts.delegate as d
     old_root = d.PROJECT_ROOT
     d.PROJECT_ROOT = tmp_path
 
     task = {"id": "TEST", "files_to_modify": ["output.py"]}
     result = {"changes": {"output.py": "line1\\nline2\\nline3"}}
-    applied = d.apply_changes(task, result)
 
+    # Mock verify to pass (tmp_path files won't pass real self_verify)
+    with patch.object(d, '_run_verify', return_value=True):
+        with patch.object(d, '_git_checkpoint'):
+            applied = d.apply_changes(task, result)
+
+    assert len(applied) > 0
     content = (tmp_path / "output.py").read_text()
     assert "\n" in content
     assert "line1" in content
@@ -163,13 +169,17 @@ def test_apply_changes_unescapes_newlines(tmp_path):
 
 def test_apply_changes_preserves_real_newlines(tmp_path):
     """apply_changes should not double-process content with real newlines."""
+    from unittest.mock import patch
     import scripts.delegate as d
     old_root = d.PROJECT_ROOT
     d.PROJECT_ROOT = tmp_path
 
     task = {"id": "TEST", "files_to_modify": ["good.py"]}
     result = {"changes": {"good.py": "line1\nline2\nline3\n"}}
-    applied = d.apply_changes(task, result)
+
+    with patch.object(d, '_run_verify', return_value=True):
+        with patch.object(d, '_git_checkpoint'):
+            applied = d.apply_changes(task, result)
 
     content = (tmp_path / "good.py").read_text()
     assert content == "line1\nline2\nline3\n"
