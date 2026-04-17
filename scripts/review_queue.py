@@ -22,6 +22,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+_BOOTSTRAP_ROOT = Path(__file__).parent.parent.resolve()
+if str(_BOOTSTRAP_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BOOTSTRAP_ROOT))
+
+from engine.protocol import DelegationEvent
+from pydantic import ValidationError
+
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 REVIEWS_DIR = PROJECT_ROOT / ".memory" / "reviews"
 PENDING_DIR = REVIEWS_DIR / "pending"
@@ -41,7 +48,7 @@ def _pending_reviews() -> list[Path]:
     return sorted(PENDING_DIR.glob("*.md"))
 
 
-def _update_delegation_log(task_id: str, verdict: str):
+def _update_delegation_log(task_id: str, verdict: str) -> None:
     """Update the delegation log with final verdict."""
     if not DELEGATIONS_LOG.exists():
         return
@@ -50,7 +57,12 @@ def _update_delegation_log(task_id: str, verdict: str):
         for line in f:
             if line.strip():
                 try:
-                    events.append(json.loads(line))
+                    raw_dict = json.loads(line)
+                    try:
+                        validated = DelegationEvent.model_validate(raw_dict).model_dump()
+                        events.append(validated)
+                    except ValidationError:
+                        events.append(raw_dict)
                 except json.JSONDecodeError:
                     pass
 
@@ -197,6 +209,7 @@ def cmd_revise(args):
 
     instruction = args.instruction or "(no instruction given)"
 
+
     # Update review file with revision note
     content = review_file.read_text()
     content += f"\n## Revision Requested\n**Instruction:** {instruction}\n**Date:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
@@ -226,6 +239,7 @@ def cmd_gate(args):
         sys.exit(1)
     else:
         sys.exit(0)
+
 
 
 def main():
