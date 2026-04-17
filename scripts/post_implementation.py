@@ -50,6 +50,24 @@ def get_current_round() -> Path:
     return path
 
 
+def _create_default_tracker(path: Path) -> None:
+    """Create a new task tracker file from template."""
+    content = f"""# Current Task Tracker
+
+**Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+## Active Tasks
+
+<!-- - [ ] TASK_NAME — description -->
+
+## Completed
+
+<!-- - [x] TASK_NAME — description -->
+"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content.lstrip(), encoding="utf-8")
+
+
 def _create_round_template(path: Path) -> None:
     """Create a new round file from template."""
     num = path.stem.replace("round-", "")

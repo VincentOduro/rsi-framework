@@ -46,6 +46,12 @@ def _run(script: str, args: list[str] | None = None, allow_failure: bool = False
     env = os.environ.copy()
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(PROJECT_ROOT) + (os.pathsep + existing if existing else "")
+    # Force UTF-8 for all file I/O so Path.read_text/write_text, print(), and
+    # json.dumps(..., ensure_ascii=False) all round-trip Unicode content (emoji,
+    # em-dashes, non-ASCII worker output). Windows default is cp1252 which
+    # raises UnicodeEncodeError on any char outside Latin-1.
+    env.setdefault("PYTHONUTF8", "1")
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
     if result.returncode != 0 and not allow_failure:
         sys.exit(result.returncode)

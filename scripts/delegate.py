@@ -72,7 +72,7 @@ def _load_worker_config() -> dict:
         }
 
     # Simple extraction from YAML
-    content = ARCHITECTURE_FILE.read_text()
+    content = ARCHITECTURE_FILE.read_text(encoding="utf-8")
     config = {}
     in_worker_api = False
     for line in content.split("\n"):
@@ -155,7 +155,7 @@ def validate_task(task: dict) -> list[str]:
     for filepath in task.get("files_to_modify", []):
         full = PROJECT_ROOT / filepath
         if full.exists():
-            line_count = full.read_text().count("\n") + 1
+            line_count = full.read_text(encoding="utf-8").count("\n") + 1
             if line_count > MAX_OUTPUT_LINES:
                 issues.append(
                     f"WARNING: {filepath} has {line_count} lines (>{MAX_OUTPUT_LINES}). "
@@ -168,7 +168,7 @@ def validate_task(task: dict) -> list[str]:
     task_file_in_dir = TASKS_DIR / f"{task_id}.json"
     if task_file_in_dir.exists():
         try:
-            existing = json.loads(task_file_in_dir.read_text())
+            existing = json.loads(task_file_in_dir.read_text(encoding="utf-8"))
             # Only flag if existing task has a DIFFERENT description (true duplicate)
             if existing.get("description") != task.get("description"):
                 issues.append(f"Task ID {task_id} already exists with different description in .rsi/tasks/")
@@ -252,7 +252,7 @@ def build_worker_prompt(task: dict) -> str:
         filepath, start_line, end_line = _parse_file_spec(file_spec)
         full_path = PROJECT_ROOT / filepath
         if full_path.exists():
-            content = full_path.read_text()
+            content = full_path.read_text(encoding="utf-8")
             if start_line or end_line:
                 lines = content.split("\n")
                 s = (start_line - 1) if start_line else 0
@@ -577,7 +577,7 @@ def save_result(task_id: str, result: dict) -> Path:
     result_path = RESULTS_DIR / f"{task_id}.json"
     # Don't store raw_response (large, not needed for apply)
     stored = {k: v for k, v in result.items() if k != "raw_response"}
-    result_path.write_text(json.dumps(stored, indent=2, ensure_ascii=False))
+    result_path.write_text(json.dumps(stored, indent=2, ensure_ascii=False), encoding="utf-8")
     return result_path
 
 
@@ -587,7 +587,7 @@ def load_result(task_id: str) -> dict | None:
     if not result_path.exists():
         return None
     try:
-        raw = json.loads(result_path.read_text())
+        raw = json.loads(result_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, IOError):
         return None
     try:
@@ -638,7 +638,7 @@ Tokens: {result.get('tokens_used', '?')} | Latency: {result.get('latency_seconds
 """
 
     review_path = PENDING_DIR / f"{task_id}.md"
-    review_path.write_text(review_content)
+    review_path.write_text(review_content, encoding="utf-8")
     return review_path
 
 
@@ -660,7 +660,7 @@ def apply_changes(task: dict, result: dict) -> list[str]:
 
         # Store original for revert
         if full_path.exists():
-            original_contents[filepath] = full_path.read_text()
+            original_contents[filepath] = full_path.read_text(encoding="utf-8")
 
         # Fix double-escaped newlines from MiniMax
         if "\\n" in content and "\n" not in content:
@@ -729,7 +729,7 @@ def _git_revert(files: list[str], originals: dict[str, str]) -> None:
     for filepath in files:
         full_path = PROJECT_ROOT / filepath
         if filepath in originals:
-            full_path.write_text(originals[filepath])
+            full_path.write_text(originals[filepath], encoding="utf-8")
             print(f"[RSI] Reverted: {filepath}")
         elif full_path.exists():
             full_path.unlink()
@@ -749,7 +749,7 @@ def log_delegation(task: dict, result: dict, verdict: str = "PENDING") -> None:
         "worker_tokens_used": result.get("tokens_used", 0),
         "worker_latency_seconds": result.get("latency_seconds", 0),
     }
-    with open(DELEGATIONS_LOG, "a") as f:
+    with open(DELEGATIONS_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
 
 
@@ -778,7 +778,7 @@ def delegate_parallel(task_files: list[str], max_workers: int = 3) -> list[dict]
             print(f"  Skip (not found): {tf}", file=sys.stderr)
             continue
         try:
-            tasks.append(json.loads(path.read_text()))
+            tasks.append(json.loads(path.read_text(encoding="utf-8")))
         except json.JSONDecodeError:
             print(f"  Skip (invalid JSON): {tf}", file=sys.stderr)
 
@@ -999,7 +999,7 @@ def cmd_delegate(args):
         print(f"ERROR: Task file not found: {task_file}", file=sys.stderr)
         sys.exit(1)
 
-    task = json.loads(task_file.read_text())
+    task = json.loads(task_file.read_text(encoding="utf-8"))
 
     # Validate
     issues = validate_task(task)
@@ -1054,7 +1054,7 @@ def cmd_history(args):
         return
 
     events = []
-    with open(DELEGATIONS_LOG) as f:
+    with open(DELEGATIONS_LOG, encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 try:

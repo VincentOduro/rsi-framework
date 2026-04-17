@@ -337,7 +337,7 @@ def main():
             return
         for a in analyses:
             status_color = green if a["status"] in ("closed", "verified") else yellow
-            print(f"  {a['id']}  {status_color(a['status'].upper():<10)}  {a['title']}")
+            print(f"  {a['id']}  {status_color(a['status'].upper()):<10}  {a['title']}")
             print(f"           Whys: {len(a['whys'])} | Countermeasure: {a['countermeasure'][:40]}")
     elif args.cmd == "create":
         if len(args.whys) < 3:
