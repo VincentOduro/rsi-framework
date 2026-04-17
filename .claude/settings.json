@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/hooks.py pre-read"
+            "command": "python scripts/hooks.py pre-read"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/hooks.py pre-edit"
+            "command": "python scripts/hooks.py pre-edit"
           }
         ]
       },
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/hooks.py pre-bash"
+            "command": "python scripts/hooks.py pre-bash"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/hooks.py post-edit"
+            "command": "python scripts/hooks.py post-edit"
           }
         ]
       }
