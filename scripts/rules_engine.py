@@ -13,11 +13,7 @@ Usage:
     allowed, messages = engine.evaluate("pre_edit", context)
 """
 
-import os
-import re
-import sys
 from pathlib import Path
-from typing import Any
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 RULES_FILE = PROJECT_ROOT / ".rsi" / "rules.yaml"
@@ -73,8 +69,9 @@ def _parse_rules_yaml(content: str) -> list[dict]:
             key = key.strip()
             val = val.strip()
             # Strip outer YAML quotes only (not inner content quotes)
-            if (val.startswith('"') and val.endswith('"')) or \
-               (val.startswith("'") and val.endswith("'")):
+            if (val.startswith('"') and val.endswith('"')) or (
+                val.startswith("'") and val.endswith("'")
+            ):
                 val = val[1:-1]
             if key in ("name", "trigger", "condition", "action", "message"):
                 current_rule[key] = val
@@ -88,6 +85,7 @@ def _parse_rules_yaml(content: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Condition evaluator
 # ---------------------------------------------------------------------------
+
 
 def _eval_condition(condition: str, context: dict) -> bool:
     """Evaluate a rule condition against the current context.
@@ -121,27 +119,27 @@ def _eval_expr(expr: str, ctx: dict) -> bool:
 
     # Handle 'or' (lowest precedence)
     # Split on ' or ' but not inside quotes or parens
-    parts = _split_outside(expr, ' or ')
+    parts = _split_outside(expr, " or ")
     if len(parts) > 1:
         return any(_eval_expr(p, ctx) for p in parts)
 
     # Handle 'and'
-    parts = _split_outside(expr, ' and ')
+    parts = _split_outside(expr, " and ")
     if len(parts) > 1:
         return all(_eval_expr(p, ctx) for p in parts)
 
     # Handle 'not'
-    if expr.startswith('not '):
+    if expr.startswith("not "):
         return not _eval_expr(expr[4:], ctx)
 
     # Handle parenthesized group
-    if expr.startswith('(') and expr.endswith(')'):
+    if expr.startswith("(") and expr.endswith(")"):
         # Check it's a complete group, not "('a', 'b')"
         depth = 0
         for i, c in enumerate(expr):
-            if c == '(':
+            if c == "(":
                 depth += 1
-            elif c == ')':
+            elif c == ")":
                 depth -= 1
             if depth == 0 and i < len(expr) - 1:
                 break  # Not a complete group
@@ -149,18 +147,18 @@ def _eval_expr(expr: str, ctx: dict) -> bool:
             return _eval_expr(expr[1:-1], ctx)
 
     # Handle '==' comparison
-    if ' == ' in expr:
-        left, right = expr.split(' == ', 1)
+    if " == " in expr:
+        left, right = expr.split(" == ", 1)
         return _resolve(left.strip(), ctx) == _resolve(right.strip(), ctx)
 
     # Handle '!=' comparison
-    if ' != ' in expr:
-        left, right = expr.split(' != ', 1)
+    if " != " in expr:
+        left, right = expr.split(" != ", 1)
         return _resolve(left.strip(), ctx) != _resolve(right.strip(), ctx)
 
     # Handle 'in' containment: "'str' in var" or "var in ('a', 'b')"
-    if ' in ' in expr:
-        left, right = expr.split(' in ', 1)
+    if " in " in expr:
+        left, right = expr.split(" in ", 1)
         left_val = _resolve(left.strip(), ctx)
         right_val = _resolve(right.strip(), ctx)
         if isinstance(right_val, (list, tuple, set)):
@@ -178,24 +176,25 @@ def _resolve(token: str, ctx: dict):
     token = token.strip()
 
     # String literal
-    if (token.startswith("'") and token.endswith("'")) or \
-       (token.startswith('"') and token.endswith('"')):
+    if (token.startswith("'") and token.endswith("'")) or (
+        token.startswith('"') and token.endswith('"')
+    ):
         return token[1:-1]
 
     # Tuple literal: ('a', 'b', 'c')
-    if token.startswith('(') and token.endswith(')'):
+    if token.startswith("(") and token.endswith(")"):
         inner = token[1:-1]
         items = []
-        for item in inner.split(','):
+        for item in inner.split(","):
             item = item.strip().strip("'").strip('"')
             if item:
                 items.append(item)
         return tuple(items)
 
     # Boolean literals
-    if token.lower() == 'true':
+    if token.lower() == "true":
         return True
-    if token.lower() == 'false':
+    if token.lower() == "false":
         return False
 
     # Context variable
@@ -210,7 +209,7 @@ def _split_outside(expr: str, sep: str) -> list[str]:
     parts = []
     depth = 0
     in_quote = False
-    quote_char = ''
+    quote_char = ""
     current = []
     i = 0
 
@@ -225,14 +224,14 @@ def _split_outside(expr: str, sep: str) -> list[str]:
             in_quote = True
             quote_char = c
             current.append(c)
-        elif c == '(':
+        elif c == "(":
             depth += 1
             current.append(c)
-        elif c == ')':
+        elif c == ")":
             depth -= 1
             current.append(c)
-        elif depth == 0 and not in_quote and expr[i:i+len(sep)] == sep:
-            parts.append(''.join(current))
+        elif depth == 0 and not in_quote and expr[i : i + len(sep)] == sep:
+            parts.append("".join(current))
             current = []
             i += len(sep)
             continue
@@ -241,13 +240,14 @@ def _split_outside(expr: str, sep: str) -> list[str]:
 
         i += 1
 
-    parts.append(''.join(current))
+    parts.append("".join(current))
     return [p for p in parts if p.strip()]
 
 
 # ---------------------------------------------------------------------------
 # Rule engine
 # ---------------------------------------------------------------------------
+
 
 class RuleEngine:
     """Evaluates declarative rules from .rsi/rules.yaml."""

@@ -35,16 +35,15 @@ For raw function calling (MiniMax, etc.):
 """
 
 import json
-import os
 import subprocess
-import sys
-from datetime import datetime, timezone, timedelta
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Optional
 
 
 class RSIError(Exception):
     """Raised when an RSI rule is violated."""
+
     pass
 
 
@@ -78,10 +77,14 @@ class RSISession:
         """Start or refresh an RSI session."""
         self.memory_root.mkdir(parents=True, exist_ok=True)
         self.session_file.parent.mkdir(parents=True, exist_ok=True)
-        self.session_file.write_text(json.dumps({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "ttl_hours": self.ttl_hours,
-        }))
+        self.session_file.write_text(
+            json.dumps(
+                {
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "ttl_hours": self.ttl_hours,
+                }
+            )
+        )
         self._started = True
         self._save_state()
 
@@ -93,7 +96,7 @@ class RSISession:
             data = json.loads(self.session_file.read_text())
             ts = datetime.fromisoformat(data["timestamp"])
             ttl = int(data.get("ttl_hours", self.ttl_hours))
-            return (datetime.now(timezone.utc) - ts) > timedelta(hours=ttl)
+            return (datetime.now(UTC) - ts) > timedelta(hours=ttl)
         except (json.JSONDecodeError, KeyError, ValueError):
             return True
 
@@ -103,7 +106,7 @@ class RSISession:
                 data = json.loads(self.state_file.read_text())
                 self._files_read = set(data.get("read_files", []))
                 self._files_edited = set(data.get("edited_files", []))
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 pass
 
     def _save_state(self) -> None:
@@ -234,16 +237,26 @@ class RSISession:
             )
 
         result = subprocess.run(
-            command, shell=True, cwd=self.project_root,
-            capture_output=True, text=True, timeout=120,
+            command,
+            shell=True,
+            cwd=self.project_root,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         output = result.stdout
         if result.returncode != 0:
             output += f"\n[STDERR]\n{result.stderr}"
         return output
 
-    def capture(self, task: str, succeeded: str, failed: str,
-                proof_wrong: str, files_changed: list[str] | None = None) -> str:
+    def capture(
+        self,
+        task: str,
+        succeeded: str,
+        failed: str,
+        proof_wrong: str,
+        files_changed: list[str] | None = None,
+    ) -> str:
         """Module A capture with proof-wrong validation.
 
         Raises:
@@ -258,6 +271,7 @@ class RSISession:
         # Validate quality
         try:
             from scripts.calibration import validate_hypothesis
+
             v = validate_hypothesis(proof_wrong)
             if not v["valid"]:
                 issues = "; ".join(v["issues"])
@@ -271,6 +285,7 @@ class RSISession:
         # Record to metrics
         try:
             from scripts.metrics import record_task_complete
+
             record_task_complete(task)
         except ImportError:
             pass
@@ -294,6 +309,7 @@ class RSISession:
 # Tool function generators for different frameworks
 # ---------------------------------------------------------------------------
 
+
 def make_tool_functions(session: RSISession) -> dict[str, Callable]:
     """Generate plain tool functions bound to an RSI session.
 
@@ -303,6 +319,7 @@ def make_tool_functions(session: RSISession) -> dict[str, Callable]:
     Returns:
         Dict of {tool_name: callable}
     """
+
     def rsi_read_file(file_path: str) -> str:
         """Read a file and record it as read in the RSI session."""
         return session.read_file(file_path)
@@ -319,8 +336,9 @@ def make_tool_functions(session: RSISession) -> dict[str, Callable]:
         """Run a shell command. BLOCKED if contains --no-verify."""
         return session.run_command(command)
 
-    def rsi_capture(task: str, succeeded: str, failed: str,
-                    proof_wrong: str, files_changed: str = "") -> str:
+    def rsi_capture(
+        task: str, succeeded: str, failed: str, proof_wrong: str, files_changed: str = ""
+    ) -> str:
         """Record what happened after a code change. proof_wrong is MANDATORY."""
         files = [f.strip() for f in files_changed.split(",") if f.strip()] if files_changed else []
         return session.capture(task, succeeded, failed, proof_wrong, files)
@@ -329,6 +347,7 @@ def make_tool_functions(session: RSISession) -> dict[str, Callable]:
         """Show the RSI andon dashboard."""
         try:
             from scripts.dashboard import render_dashboard
+
             return render_dashboard()
         except ImportError:
             return session.run_command("python3 scripts/rsi.py dashboard")
@@ -358,6 +377,7 @@ def make_openai_functions(session: RSISession) -> list[dict]:
         List of function definitions for the tools/functions parameter
     """
     from adapters.base import RSIRules
+
     definitions = RSIRules.generate_tool_definitions()
 
     # Bind the actual implementations

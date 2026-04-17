@@ -1,15 +1,10 @@
 """Tests for the metrics engine — verifies event recording, querying, and computations."""
 
-import json
-import tempfile
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from unittest.mock import patch
-
 
 def _setup_metrics(tmp_path):
     """Set up metrics module with a temp directory."""
     import scripts.metrics as m
+
     m.METRICS_DIR = tmp_path
     m.EVENTS_FILE = tmp_path / "events.jsonl"
     return m

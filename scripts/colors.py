@@ -4,7 +4,6 @@ Windows-safe: detects cp1252/ASCII terminals and falls back to ASCII
 symbols. No Unicode crashes on Windows cmd/PowerShell.
 """
 
-import os
 import sys
 
 
@@ -24,12 +23,12 @@ def _supports_unicode() -> bool:
 _UNICODE = _supports_unicode()
 
 # Safe symbols — Unicode with ASCII fallback
-CHECK = "\u2713" if _UNICODE else "+"     # ✓ or +
-CROSS = "\u2717" if _UNICODE else "x"     # ✗ or x
-WARN = "\u26a0" if _UNICODE else "!"      # ⚠ or !
-ARROW = "\u2192" if _UNICODE else "->"    # → or ->
-BLOCK = "#" if not _UNICODE else "\u2588" # █ or #
-EMPTY = "." if not _UNICODE else "\u2591" # ░ or .
+CHECK = "\u2713" if _UNICODE else "+"  # ✓ or +
+CROSS = "\u2717" if _UNICODE else "x"  # ✗ or x
+WARN = "\u26a0" if _UNICODE else "!"  # ⚠ or !
+ARROW = "\u2192" if _UNICODE else "->"  # → or ->
+BLOCK = "#" if not _UNICODE else "\u2588"  # █ or #
+EMPTY = "." if not _UNICODE else "\u2591"  # ░ or .
 
 
 def green(msg: str) -> str:

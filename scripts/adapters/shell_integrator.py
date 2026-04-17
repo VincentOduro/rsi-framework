@@ -32,28 +32,29 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
-PROJECT_ROOT = Path(os.environ.get("RSI_PROJECT_ROOT", Path(__file__).parent.parent.parent.resolve()))
+PROJECT_ROOT = Path(
+    os.environ.get("RSI_PROJECT_ROOT", Path(__file__).parent.parent.parent.resolve())
+)
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 try:
     from hooks import (
-        _record_file_read,
-        _record_file_edited,
-        _load_read_files,
-        _relative_path,
-        _is_session_expired,
         _get_relevant_fail_entries,
+        _is_session_expired,
+        _load_read_files,
+        _record_file_edited,
+        _record_file_read,
+        _relative_path,
     )
 except ImportError:
     from scripts.hooks import (
-        _record_file_read,
-        _record_file_edited,
-        _load_read_files,
-        _relative_path,
-        _is_session_expired,
         _get_relevant_fail_entries,
+        _is_session_expired,
+        _load_read_files,
+        _record_file_edited,
+        _record_file_read,
+        _relative_path,
     )
 
 
@@ -74,7 +75,7 @@ class ShellIntegrator:
         " "$@"
     """
 
-    def __init__(self, project_root: Optional[Path] = None):
+    def __init__(self, project_root: Path | None = None):
         """Initialize the shell integrator.
 
         Args:
@@ -124,7 +125,10 @@ class ShellIntegrator:
 
         # Check session expiry
         if _is_session_expired():
-            print("[RSI] Session expired. Run 'python3 scripts/rsi.py init' to start a new session.", file=sys.stderr)
+            print(
+                "[RSI] Session expired. Run 'python3 scripts/rsi.py init' to start a new session.",
+                file=sys.stderr,
+            )
             print("[RSI] Edits are blocked until session is active.", file=sys.stderr)
             sys.exit(1)
 
@@ -135,8 +139,11 @@ class ShellIntegrator:
         if rel not in read_files:
             if Path(filepath).exists():
                 print(f"[RSI] File '{rel}' has not been read in this session.", file=sys.stderr)
-                print(f"[RSI] Genchi Genbutsu: you must read a file before editing it.", file=sys.stderr)
-                print(f"[RSI] Read the file first, then retry the edit.", file=sys.stderr)
+                print(
+                    "[RSI] Genchi Genbutsu: you must read a file before editing it.",
+                    file=sys.stderr,
+                )
+                print("[RSI] Read the file first, then retry the edit.", file=sys.stderr)
                 sys.exit(1)
 
         # Show FAIL-index entries
@@ -189,7 +196,10 @@ class ShellIntegrator:
         # Check for --no-verify bypass
         if "git commit" in command and "--no-verify" in command:
             print("[RSI] WARNING: --no-verify bypasses quality gates.", file=sys.stderr)
-            print("[RSI] This violates Jidoka (Principle 5): stop and fix quality first.", file=sys.stderr)
+            print(
+                "[RSI] This violates Jidoka (Principle 5): stop and fix quality first.",
+                file=sys.stderr,
+            )
             print("[RSI] Remove --no-verify and fix any failing checks.", file=sys.stderr)
             sys.exit(1)
 

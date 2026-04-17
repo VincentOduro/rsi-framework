@@ -1,11 +1,9 @@
 """Tests for the calibration tracker — verifies hypothesis recording, validation, and scoring."""
 
-import json
-from pathlib import Path
-
 
 def _setup_calibration(tmp_path):
     import scripts.calibration as c
+
     c.CALIBRATION_DIR = tmp_path
     c.HYPOTHESES_FILE = tmp_path / "hypotheses.jsonl"
     return c

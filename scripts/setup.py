@@ -18,13 +18,12 @@
 #
 # To undo: rm -rf ~/.git_template/hooks/rsi-* ~/.memory/rsi/
 
+import argparse
 import os
-import sys
 import shutil
 import stat
-import argparse
+import sys
 from pathlib import Path
-
 
 SUPPORTED_MODELS = {
     "claude": "Claude Code (PreToolUse/PostToolUse hooks)",
@@ -64,7 +63,7 @@ def install_git_hooks(project_root: Path) -> bool:
 
     test_hook = template_hooks / "pre-commit"
     if not (test_hook.stat().st_mode & stat.S_IXUSR):
-        print(f"  x pre-commit is NOT executable")
+        print("  x pre-commit is NOT executable")
         return False
 
     return True
@@ -78,6 +77,7 @@ def install_claude_hooks(project_root: Path) -> None:
         sys.path.insert(0, str(project_root))
         try:
             from adapters.claude_code import ClaudeCodeAdapter
+
             adapter = ClaudeCodeAdapter(project_root)
             created = adapter.install()
             for f in created:
@@ -86,15 +86,36 @@ def install_claude_hooks(project_root: Path) -> None:
             # Fallback: write settings directly
             claude_settings.parent.mkdir(parents=True, exist_ok=True)
             import json
+
             settings = {
                 "hooks": {
                     "PreToolUse": [
-                        {"matcher": "Read", "hooks": [{"type": "command", "command": "python3 scripts/hooks.py pre-read"}]},
-                        {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "python3 scripts/hooks.py pre-edit"}]},
-                        {"matcher": "Bash", "hooks": [{"type": "command", "command": "python3 scripts/hooks.py pre-bash"}]},
+                        {
+                            "matcher": "Read",
+                            "hooks": [
+                                {"type": "command", "command": "python3 scripts/hooks.py pre-read"}
+                            ],
+                        },
+                        {
+                            "matcher": "Edit|Write",
+                            "hooks": [
+                                {"type": "command", "command": "python3 scripts/hooks.py pre-edit"}
+                            ],
+                        },
+                        {
+                            "matcher": "Bash",
+                            "hooks": [
+                                {"type": "command", "command": "python3 scripts/hooks.py pre-bash"}
+                            ],
+                        },
                     ],
                     "PostToolUse": [
-                        {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "python3 scripts/hooks.py post-edit"}]},
+                        {
+                            "matcher": "Edit|Write",
+                            "hooks": [
+                                {"type": "command", "command": "python3 scripts/hooks.py post-edit"}
+                            ],
+                        },
                     ],
                 }
             }
@@ -102,7 +123,7 @@ def install_claude_hooks(project_root: Path) -> None:
             print(f"  + Claude Code hooks installed at {claude_settings}")
     else:
         print(f"  + Claude Code hooks already exist at {claude_settings}")
-        print(f"    (To update, delete .claude/settings.json and re-run setup)")
+        print("    (To update, delete .claude/settings.json and re-run setup)")
 
 
 def install_opencode_adapter(project_root: Path) -> None:
@@ -110,6 +131,7 @@ def install_opencode_adapter(project_root: Path) -> None:
     sys.path.insert(0, str(project_root))
     try:
         from adapters.minimax import MiniMaxAdapter
+
         adapter = MiniMaxAdapter(project_root)
         created = adapter.install()
         for f in created:
@@ -118,7 +140,7 @@ def install_opencode_adapter(project_root: Path) -> None:
         if wrapper.exists():
             wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     except ImportError:
-        print(f"  x Adapter module not found. Ensure adapters/ directory exists.")
+        print("  x Adapter module not found. Ensure adapters/ directory exists.")
 
 
 def install_shell_integrator(project_root: Path) -> None:
@@ -126,6 +148,7 @@ def install_shell_integrator(project_root: Path) -> None:
     sys.path.insert(0, str(project_root))
     try:
         from adapters.generic import GenericAdapter
+
         adapter = GenericAdapter(project_root)
         created = adapter.install()
         for f in created:
@@ -134,7 +157,7 @@ def install_shell_integrator(project_root: Path) -> None:
         if wrapper.exists():
             wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     except ImportError:
-        print(f"  x Adapter module not found. Ensure adapters/ directory exists.")
+        print("  x Adapter module not found. Ensure adapters/ directory exists.")
 
 
 def init_memory(project_root: Path) -> None:
@@ -143,13 +166,13 @@ def init_memory(project_root: Path) -> None:
     template_dir = project_root / "MEMORY_TEMPLATE"
 
     if memory_dir.exists():
-        print(f"  + .memory/ already exists")
+        print("  + .memory/ already exists")
     elif template_dir.exists():
-        print(f"  + Initializing .memory/ from MEMORY_TEMPLATE...")
+        print("  + Initializing .memory/ from MEMORY_TEMPLATE...")
         shutil.copytree(template_dir, memory_dir)
-        print(f"    .memory/ created")
+        print("    .memory/ created")
     else:
-        print(f"  ! MEMORY_TEMPLATE not found, skipping .memory/ init")
+        print("  ! MEMORY_TEMPLATE not found, skipping .memory/ init")
 
 
 def select_model_interactive() -> list:
@@ -159,8 +182,8 @@ def select_model_interactive() -> list:
     options = list(SUPPORTED_MODELS.items())
     for i, (name, desc) in enumerate(options, 1):
         print(f"  {i}. {name:12} — {desc}")
-    print(f"  a.  all        — Install all models")
-    print(f"  c.  continue  — Skip model setup, continue with git hooks")
+    print("  a.  all        — Install all models")
+    print("  c.  continue  — Skip model setup, continue with git hooks")
     print("")
 
     selected = []
@@ -203,17 +226,11 @@ def main():
     parser.add_argument(
         "--model",
         choices=["claude", "opencode", "shell", "all"],
-        help="AI model to set up (default: all)"
+        help="AI model to set up (default: all)",
     )
+    parser.add_argument("--skip-memory", action="store_true", help="Skip .memory/ initialization")
     parser.add_argument(
-        "--skip-memory",
-        action="store_true",
-        help="Skip .memory/ initialization"
-    )
-    parser.add_argument(
-        "--list-models",
-        action="store_true",
-        help="List supported AI models and exit"
+        "--list-models", action="store_true", help="List supported AI models and exit"
     )
 
     args = parser.parse_args()
@@ -240,7 +257,9 @@ def main():
     else:
         models_to_install = select_model_interactive()
 
-    print(f"Installing for models: {', '.join(models_to_install) if models_to_install else 'git hooks only'}")
+    print(
+        f"Installing for models: {', '.join(models_to_install) if models_to_install else 'git hooks only'}"
+    )
     print("")
 
     # Always install git hooks (required for commit enforcement)

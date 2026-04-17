@@ -19,7 +19,6 @@ import re
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Optional
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 BACKLOG_FILE = PROJECT_ROOT / ".memory" / "backlog.md"
@@ -50,7 +49,7 @@ def cyan(msg: str) -> str:
 def _read_backlog() -> str:
     if not BACKLOG_FILE.exists():
         print(f"{red('ERROR:')} No backlog found at {BACKLOG_FILE}")
-        print(f"Copy MEMORY_TEMPLATE/backlog.md to .memory/backlog.md first.")
+        print("Copy MEMORY_TEMPLATE/backlog.md to .memory/backlog.md first.")
         sys.exit(1)
     return BACKLOG_FILE.read_text()
 
@@ -70,7 +69,7 @@ def _parse_tasks(content: str) -> list[dict]:
 
         # Find the full task block (from ### line to next ### or end)
         start = match.start()
-        next_match = re.search(r"### TSK-\d+:", content[start + 1:])
+        next_match = re.search(r"### TSK-\d+:", content[start + 1 :])
         if next_match:
             end = start + 1 + next_match.start()
         else:
@@ -183,7 +182,7 @@ def _update_stats(content: str) -> str:
     pattern = r"\| Metric \| Count \|.*?\|---\|"
     match = re.search(pattern, content, re.DOTALL)
     if match:
-        content = content[:match.start()] + stats_lines + content[match.end():]
+        content = content[: match.start()] + stats_lines + content[match.end() :]
     return content
 
 
@@ -213,7 +212,7 @@ def _insert_task_into_section(content: str, task: dict, status: str) -> str:
         priority_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "": 4}
         rows.sort(key=lambda r: priority_order.get(r.split("|")[4].strip(), 4))
         new_table = table_start + "\n".join(rows) + "\n"
-        content = content[:match.start()] + new_table + content[match.end():]
+        content = content[: match.start()] + new_table + content[match.end() :]
     return content
 
 
@@ -344,7 +343,7 @@ def cmd_show(args) -> None:
             print(f"  {label:<12} {value}")
 
     if task.get("notes"):
-        print(f"\n  Notes:")
+        print("\n  Notes:")
         for line in task["notes"].split("\n"):
             print(f"    {line}")
 
@@ -388,7 +387,11 @@ def cmd_update(args) -> None:
     # Rebuild the task block in content
     old_block_match = re.search(rf"### {task['id']}:.*?(?=\n### |\Z)", content, re.DOTALL)
     if old_block_match:
-        content = content[:old_block_match.start()] + _build_task_block(task) + content[old_block_match.end():]
+        content = (
+            content[: old_block_match.start()]
+            + _build_task_block(task)
+            + content[old_block_match.end() :]
+        )
 
     # If status changed, move task row between sections
     if old_status != task.get("status"):
@@ -424,17 +427,17 @@ def cmd_stats(args) -> None:
     print("BACKLOG STATS")
     print(f"{'=' * 50}\n")
     print(f"  Total tasks:  {total}")
-    print(f"\n  By Status:")
+    print("\n  By Status:")
     for s in ["in-progress", "blocked", "todo", "done"]:
         count = by_status.get(s, 0)
         bar = "#" * count + "." * max(0, 10 - count)
         print(f"    {s:<12} {bar} {count}")
-    print(f"\n  By Priority:")
+    print("\n  By Priority:")
     for p in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
         count = by_priority.get(p, 0)
         bar = "#" * count + "." * max(0, 10 - count)
         print(f"    {p:<12} {bar} {count}")
-    print(f"\n  By Type:")
+    print("\n  By Type:")
     for t, count in sorted(by_type.items()):
         bar = "#" * count + "." * max(0, 10 - count)
         print(f"    {t:<12} {bar} {count}")
@@ -449,15 +452,21 @@ def main():
 
     # add
     add_parser = subparsers.add_parser("add", help="Add a new task")
-    add_parser.add_argument("--type", required=True, choices=sorted(VALID_TYPES),
-                            help="Task type")
+    add_parser.add_argument("--type", required=True, choices=sorted(VALID_TYPES), help="Task type")
     add_parser.add_argument("--title", required=True, help="Task title")
-    add_parser.add_argument("--status", default="todo", choices=sorted(VALID_STATUSES),
-                            help="Task status (default: todo)")
-    add_parser.add_argument("--priority", default="MEDIUM", choices=sorted(VALID_PRIORITIES),
-                            help="Task priority (default: MEDIUM)")
-    add_parser.add_argument("--estimate", choices=sorted(VALID_ESTIMATES),
-                            help="Estimated effort")
+    add_parser.add_argument(
+        "--status",
+        default="todo",
+        choices=sorted(VALID_STATUSES),
+        help="Task status (default: todo)",
+    )
+    add_parser.add_argument(
+        "--priority",
+        default="MEDIUM",
+        choices=sorted(VALID_PRIORITIES),
+        help="Task priority (default: MEDIUM)",
+    )
+    add_parser.add_argument("--estimate", choices=sorted(VALID_ESTIMATES), help="Estimated effort")
     add_parser.add_argument("--assignee", help="Assignee")
     add_parser.add_argument("--related", help="Related tasks or FAIL-IDs")
     add_parser.add_argument("--blocked-by", help="Task(s) blocking this task")
@@ -466,7 +475,9 @@ def main():
     # list
     list_parser = subparsers.add_parser("list", help="List tasks")
     list_parser.add_argument("--status", choices=sorted(VALID_STATUSES), help="Filter by status")
-    list_parser.add_argument("--priority", choices=sorted(VALID_PRIORITIES), help="Filter by priority")
+    list_parser.add_argument(
+        "--priority", choices=sorted(VALID_PRIORITIES), help="Filter by priority"
+    )
     list_parser.add_argument("--type", choices=sorted(VALID_TYPES), help="Filter by type")
 
     # show

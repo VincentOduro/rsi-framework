@@ -5,12 +5,11 @@ Full tool enforcement via RSISession.
 Works with any LLM backend LangChain supports.
 """
 
-from adapters.base import BaseAdapter, RSIRules, register_adapter
+from adapters.base import BaseAdapter, register_adapter
 
 
 @register_adapter
 class LangChainAdapter(BaseAdapter):
-
     @property
     def platform_name(self) -> str:
         return "LangChain / LangGraph"

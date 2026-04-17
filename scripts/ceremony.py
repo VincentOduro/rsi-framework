@@ -20,7 +20,6 @@ Ceremony levels:
 """
 
 import subprocess
-import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -31,8 +30,18 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
 # File patterns that indicate low-risk changes
 LOW_RISK_PATTERNS = {
-    ".md", ".txt", ".rst", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg",
-    ".gitignore", ".editorconfig", ".prettierrc",
+    ".md",
+    ".txt",
+    ".rst",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".gitignore",
+    ".editorconfig",
+    ".prettierrc",
 }
 
 # File patterns that indicate high-risk changes
@@ -179,14 +188,19 @@ CEREMONY_STEPS = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_changed_files() -> list[str]:
     result = subprocess.run(
         ["git", "diff", "--name-only", "HEAD"],
-        cwd=PROJECT_ROOT, capture_output=True, text=True,
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
     )
     staged = subprocess.run(
         ["git", "diff", "--cached", "--name-only"],
-        cwd=PROJECT_ROOT, capture_output=True, text=True,
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
     )
     files = set()
     for output in [result.stdout, staged.stdout]:
@@ -200,12 +214,15 @@ def _get_changed_files() -> list[str]:
 def _count_changed_lines() -> int:
     result = subprocess.run(
         ["git", "diff", "--stat", "HEAD"],
-        cwd=PROJECT_ROOT, capture_output=True, text=True,
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
     )
     # Parse last line: " N files changed, X insertions(+), Y deletions(-)"
     for line in reversed(result.stdout.strip().split("\n")):
         if "changed" in line:
             import re
+
             nums = re.findall(r"(\d+)", line)
             if len(nums) >= 2:
                 return sum(int(n) for n in nums[1:])
@@ -223,10 +240,12 @@ def _read_file_safe(filepath: str) -> str:
 # CLI
 # ---------------------------------------------------------------------------
 
-def main():
-    from scripts.colors import green, yellow, cyan, red, bold
 
+def main():
     import argparse
+
+    from scripts.colors import bold, cyan, green, red, yellow
+
     parser = argparse.ArgumentParser(description="RSI Ceremony Classifier — Heijunka")
     parser.add_argument("--files", nargs="*", help="Files to classify (default: git diff)")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -236,6 +255,7 @@ def main():
 
     if args.json:
         import json
+
         print(json.dumps(result, indent=2))
         return
 
@@ -251,7 +271,9 @@ def main():
     print(f"CEREMONY LEVEL: {color(bold(result['level'].upper()))}")
     print(f"{'=' * 60}\n")
     print(f"  Reason:  {result['reason']}")
-    print(f"  Files:   {result['files_changed']} ({result['code_files']} code, {result['doc_files']} docs, {result['config_files']} config, {result['test_files']} tests)")
+    print(
+        f"  Files:   {result['files_changed']} ({result['code_files']} code, {result['doc_files']} docs, {result['config_files']} config, {result['test_files']} tests)"
+    )
     print(f"  Lines:   {result['lines_changed']}")
 
     if result["risk_factors"]:

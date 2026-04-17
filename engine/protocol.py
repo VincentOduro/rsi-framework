@@ -8,7 +8,7 @@ Design principle: the worker proposes, the bus validates, the orchestrator revie
 Nobody touches files except the bus, and the bus enforces RSI rules.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -101,7 +101,7 @@ class DelegationEvent(BaseModel):
 
 def generate_task_id() -> str:
     """Generate a unique task ID."""
-    ts = datetime.now(timezone.utc).strftime("%H%M%S")
+    ts = datetime.now(UTC).strftime("%H%M%S")
     import random
 
     return f"T-{ts}-{random.randint(100, 999)}"

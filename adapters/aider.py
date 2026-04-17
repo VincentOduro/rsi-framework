@@ -10,7 +10,6 @@ from adapters.base import BaseAdapter, RSIRules, register_adapter
 
 @register_adapter
 class AiderAdapter(BaseAdapter):
-
     @property
     def platform_name(self) -> str:
         return "Aider"
@@ -35,7 +34,7 @@ class AiderAdapter(BaseAdapter):
         ]
         for rule in rules.RULES:
             lines.append(f"## {rule['name']}")
-            lines.append(rule['rule'])
+            lines.append(rule["rule"])
             lines.append("")
 
         lines.append("## After every code change")

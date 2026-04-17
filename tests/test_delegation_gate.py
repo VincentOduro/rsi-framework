@@ -2,8 +2,8 @@
 edit guarded/open files directly when MINIMAX_API_KEY is set."""
 
 import json
-import os
 import sys
+from datetime import UTC
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 def _setup_hooks(tmp_path):
     """Configure hooks module to use tmp directories."""
     import scripts.hooks as h
+
     h.PROJECT_ROOT = tmp_path
     h.MEMORY_ROOT = tmp_path / ".memory"
     h.STATE_FILE = tmp_path / ".memory" / ".preflight_state.json"
@@ -30,11 +31,16 @@ def _setup_hooks(tmp_path):
 
     # Start a valid session
     h.SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
-    from datetime import datetime, timezone
-    h.SESSION_FILE.write_text(json.dumps({
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "ttl_hours": 24,
-    }))
+    from datetime import datetime
+
+    h.SESSION_FILE.write_text(
+        json.dumps(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "ttl_hours": 24,
+            }
+        )
+    )
 
     return h
 

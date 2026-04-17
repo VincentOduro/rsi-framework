@@ -113,7 +113,7 @@ def cmd_status(args) -> None:
         print(f"\n  {yellow('WARNING:')} Run --adopt to record your framework version.")
     elif local_version != recorded_version and recorded_version != "none":
         print(f"\n  {cyan('INFO:')} Update available: v{recorded_version} -> v{local_version}")
-        print(f"  Run --pull to update.")
+        print("  Run --pull to update.")
     else:
         print(f"\n  {green('OK:')} Framework is up to date.")
 
@@ -178,10 +178,12 @@ def cmd_pull(args) -> None:
         for change in changes:
             print(f"    - {change}")
     print(f"\n  Updated version marker: v{old_version}")
-    print(f"\n  To verify the update:")
-    print(f"    python3 scripts/self_verify.py --changed-only")
-    print(f"\n  To record this update in memory:")
-    print(f"    python3 scripts/post_implementation.py --task 'Updated RSI framework' --succeeded 'Pulled v{old_version} -> v{old_version}' --proof-wrong 'If backup is corrupted, framework files may be unrecoverable'")
+    print("\n  To verify the update:")
+    print("    python3 scripts/self_verify.py --changed-only")
+    print("\n  To record this update in memory:")
+    print(
+        f"    python3 scripts/post_implementation.py --task 'Updated RSI framework' --succeeded 'Pulled v{old_version} -> v{old_version}' --proof-wrong 'If backup is corrupted, framework files may be unrecoverable'"
+    )
 
 
 def _report_changes(new_version: str) -> list[str]:
@@ -191,7 +193,9 @@ def _report_changes(new_version: str) -> list[str]:
     changelog = RSI_FRAMEWORK_DIR / "CHANGELOG.md"
     if changelog.exists():
         content = changelog.read_text()
-        version_section = re.search(rf"(?=##?\s+v?{new_version}\b).*?(?=##?\s+v?\d+\.\d+|\Z)", content, re.DOTALL)
+        version_section = re.search(
+            rf"(?=##?\s+v?{new_version}\b).*?(?=##?\s+v?\d+\.\d+|\Z)", content, re.DOTALL
+        )
         if version_section:
             changes.append(f"See CHANGELOG.md for v{new_version} changes")
 
@@ -224,8 +228,8 @@ def cmd_adopt(args) -> None:
     print(f"{green('ADOPTED')} RSI Framework v{version} on {today}")
     print(f"  Version marker: {FRAMEWORK_MARKER.relative_to(PROJECT_ROOT)}")
     print(f"  Feedback file:  {FEEDBACK_FILE.relative_to(PROJECT_ROOT)}")
-    print(f"\n  Run --status to see current state.")
-    print(f"  Run --check periodically to detect updates.")
+    print("\n  Run --status to see current state.")
+    print("  Run --check periodically to detect updates.")
 
 
 def _init_feedback_template() -> None:
@@ -242,7 +246,7 @@ def _init_feedback_template() -> None:
 ## Project Info
 
 **Project:** {PROJECT_ROOT.name}
-**Adopted framework version:** {FRAMEWORK_MARKER.read_text().strip() if FRAMEWORK_MARKER.exists() else 'unknown'}
+**Adopted framework version:** {FRAMEWORK_MARKER.read_text().strip() if FRAMEWORK_MARKER.exists() else "unknown"}
 **Date:** {date.today().isoformat()}
 
 ---
@@ -287,6 +291,7 @@ def cmd_feedback(args) -> None:
 
     if args.edit:
         import subprocess
+
         editor = subprocess.os.environ.get("EDITOR", "nano")
         subprocess.run([editor, str(FEEDBACK_FILE)])
     elif args.show:
@@ -296,13 +301,13 @@ def cmd_feedback(args) -> None:
         print(f"{green('Reset')} feedback file.")
     else:
         print(f"Feedback file: {FEEDBACK_FILE}")
-        print(f"Run --feedback --edit to modify, --feedback --show to view.")
-        print(f"Run --feedback --reset to re-initialize.")
+        print("Run --feedback --edit to modify, --feedback --show to view.")
+        print("Run --feedback --reset to re-initialize.")
 
 
 def cmd_help(args) -> None:
     """Show detailed help."""
-    print(f"""
+    print("""
 RSI Framework Sync — v1.0
 
 Adoption (first time):
@@ -342,13 +347,25 @@ def main():
     )
     parser.add_argument("--status", action="store_true", help="Show framework version status")
     parser.add_argument("--check", action="store_true", help="Check if update available")
-    parser.add_argument("--pull", action="store_true", help="Pull latest framework (backup + update)")
-    parser.add_argument("--adopt", action="store_true", help="Record framework adoption (first time)")
+    parser.add_argument(
+        "--pull", action="store_true", help="Pull latest framework (backup + update)"
+    )
+    parser.add_argument(
+        "--adopt", action="store_true", help="Record framework adoption (first time)"
+    )
     parser.add_argument("--feedback", action="store_true", help="Work with feedback file")
-    parser.add_argument("--feedback-edit", dest="feedback_edit", action="store_true", help="Edit feedback file")
-    parser.add_argument("--feedback-show", dest="feedback_show", action="store_true", help="Show feedback file")
-    parser.add_argument("--feedback-reset", dest="feedback_reset", action="store_true", help="Reset feedback file")
-    parser.add_argument("--help-detailed", dest="help_detailed", action="store_true", help="Show detailed help")
+    parser.add_argument(
+        "--feedback-edit", dest="feedback_edit", action="store_true", help="Edit feedback file"
+    )
+    parser.add_argument(
+        "--feedback-show", dest="feedback_show", action="store_true", help="Show feedback file"
+    )
+    parser.add_argument(
+        "--feedback-reset", dest="feedback_reset", action="store_true", help="Reset feedback file"
+    )
+    parser.add_argument(
+        "--help-detailed", dest="help_detailed", action="store_true", help="Show detailed help"
+    )
 
     args = parser.parse_args()
 

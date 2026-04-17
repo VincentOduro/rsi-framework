@@ -20,7 +20,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Ensure project root is importable so `engine.protocol` resolves when this
@@ -29,8 +29,9 @@ _PROJECT_ROOT_BOOTSTRAP = Path(__file__).parent.parent.resolve()
 if str(_PROJECT_ROOT_BOOTSTRAP) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT_BOOTSTRAP))
 
-from engine.protocol import TaskSpec, WorkerResult
 from pydantic import ValidationError
+
+from engine.protocol import TaskSpec, WorkerResult
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 TASKS_DIR = PROJECT_ROOT / ".rsi" / "tasks"
@@ -90,7 +91,9 @@ def _load_worker_config() -> dict:
                 in_worker_api = False
 
     # Env vars override
-    config["base_url"] = os.environ.get("MINIMAX_BASE_URL", config.get("base_url", "https://api.minimaxi.chat/v1"))
+    config["base_url"] = os.environ.get(
+        "MINIMAX_BASE_URL", config.get("base_url", "https://api.minimaxi.chat/v1")
+    )
     config["model"] = os.environ.get("RSI_WORKER_MODEL", config.get("model", "MiniMax-M2.7"))
     config.setdefault("max_tokens", "8192")
     config.setdefault("timeout_seconds", "120")
@@ -112,6 +115,7 @@ def _get_api_key(config: dict) -> str:
 # Task validation
 # ---------------------------------------------------------------------------
 
+
 def validate_task(task: dict) -> list[str]:
     """Validate task spec against architecture rules. Returns list of issues."""
     from scripts.classify_file import classify_file
@@ -128,7 +132,14 @@ def validate_task(task: dict) -> list[str]:
             msg = err["msg"]
             # Preserve legacy error strings for missing top-level fields so
             # existing tests and downstream consumers still match on them.
-            if err["type"] == "missing" and loc in {"id", "description", "instruction", "files_to_modify", "acceptance_criteria", "proof_wrong"}:
+            if err["type"] == "missing" and loc in {
+                "id",
+                "description",
+                "instruction",
+                "files_to_modify",
+                "acceptance_criteria",
+                "proof_wrong",
+            }:
                 issues.append(f"Missing required field: {loc}")
             elif loc == "acceptance_criteria":
                 issues.append("acceptance_criteria must have at least one entry")
@@ -146,7 +157,11 @@ def validate_task(task: dict) -> list[str]:
     # Files to read must exist
     for filepath in task.get("files_to_read", []):
         # Strip line-range suffix for existence check
-        clean_path = filepath.split(":")[0] if ":" in filepath and filepath.split(":")[-1][0:1].isdigit() else filepath
+        clean_path = (
+            filepath.split(":")[0]
+            if ":" in filepath and filepath.split(":")[-1][0:1].isdigit()
+            else filepath
+        )
         if not (PROJECT_ROOT / clean_path).exists():
             issues.append(f"File to read does not exist: {clean_path}")
 
@@ -171,8 +186,10 @@ def validate_task(task: dict) -> list[str]:
             existing = json.loads(task_file_in_dir.read_text(encoding="utf-8"))
             # Only flag if existing task has a DIFFERENT description (true duplicate)
             if existing.get("description") != task.get("description"):
-                issues.append(f"Task ID {task_id} already exists with different description in .rsi/tasks/")
-        except (json.JSONDecodeError, IOError):
+                issues.append(
+                    f"Task ID {task_id} already exists with different description in .rsi/tasks/"
+                )
+        except (OSError, json.JSONDecodeError):
             pass
 
     return issues
@@ -258,7 +275,7 @@ def build_worker_prompt(task: dict) -> str:
                 s = (start_line - 1) if start_line else 0
                 e = end_line if end_line else len(lines)
                 content = "\n".join(lines[s:e])
-                parts.append(f'<file path="{filepath}" lines="{s+1}-{e}">\n{content}\n</file>\n')
+                parts.append(f'<file path="{filepath}" lines="{s + 1}-{e}">\n{content}\n</file>\n')
             else:
                 parts.append(f'<file path="{filepath}">\n{content}\n</file>\n')
         else:
@@ -270,6 +287,7 @@ def build_worker_prompt(task: dict) -> str:
 # ---------------------------------------------------------------------------
 # Robust JSON extraction from LLM output
 # ---------------------------------------------------------------------------
+
 
 def _extract_json(raw: str) -> dict | None:
     """Extract a JSON object from messy LLM output.
@@ -302,8 +320,8 @@ def _extract_json(raw: str) -> dict | None:
 
     # Attempt 2: Extract from markdown code fences
     fence_patterns = [
-        r"```(?:json)?\s*\n(.*?)\n\s*```",   # ```json ... ```
-        r"```\s*\n?(.*?)\n?\s*```",            # ``` ... ```
+        r"```(?:json)?\s*\n(.*?)\n\s*```",  # ```json ... ```
+        r"```\s*\n?(.*?)\n?\s*```",  # ``` ... ```
     ]
     for pattern in fence_patterns:
         match = re.search(pattern, text, re.DOTALL)
@@ -348,7 +366,7 @@ def _find_json_object(text: str) -> dict | None:
     candidates = []
     i = 0
     while i < len(text):
-        if text[i] == '{':
+        if text[i] == "{":
             depth = 0
             in_string = False
             escape = False
@@ -357,17 +375,17 @@ def _find_json_object(text: str) -> dict | None:
                 c = text[j]
                 if escape:
                     escape = False
-                elif c == '\\' and in_string:
+                elif c == "\\" and in_string:
                     escape = True
                 elif c == '"' and not escape:
                     in_string = not in_string
                 elif not in_string:
-                    if c == '{':
+                    if c == "{":
                         depth += 1
-                    elif c == '}':
+                    elif c == "}":
                         depth -= 1
                         if depth == 0:
-                            candidate = text[i:j+1]
+                            candidate = text[i : j + 1]
                             try:
                                 parsed = json.loads(candidate)
                                 if isinstance(parsed, dict):
@@ -383,7 +401,7 @@ def _find_json_object(text: str) -> dict | None:
 
     # Always try brace repair on the full text first — catches truncated outer objects
     # that _find_json_object misses because inner objects match first
-    start = text.find('{')
+    start = text.find("{")
     if start >= 0:
         fragment = text[start:]
         repaired = _repair_truncated_json(fragment)
@@ -405,13 +423,13 @@ def _clean_json_string(text: str) -> dict | None:
     s = text.strip()
 
     # Remove leading/trailing non-JSON content
-    start = s.find('{')
-    end = s.rfind('}')
+    start = s.find("{")
+    end = s.rfind("}")
     if start >= 0 and end > start:
-        s = s[start:end+1]
+        s = s[start : end + 1]
 
     # Fix trailing commas before } or ]
-    s = re.sub(r',\s*([}\]])', r'\1', s)
+    s = re.sub(r",\s*([}\]])", r"\1", s)
 
     # Fix single quotes used instead of double quotes (risky but common)
     # Only do this if double-quote parse fails first
@@ -431,7 +449,7 @@ def _clean_json_string(text: str) -> dict | None:
         pass
 
     # Remove control characters that break JSON
-    s = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', s)
+    s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", s)
     try:
         return json.loads(s)
     except json.JSONDecodeError:
@@ -454,7 +472,7 @@ def _repair_truncated_json(fragment: str) -> dict | None:
         if escape:
             escape = False
             continue
-        if c == '\\' and in_string:
+        if c == "\\" and in_string:
             escape = True
             continue
         if c == '"':
@@ -462,21 +480,25 @@ def _repair_truncated_json(fragment: str) -> dict | None:
             continue
         if in_string:
             continue
-        if c == '{': depth_brace += 1
-        elif c == '}': depth_brace -= 1
-        elif c == '[': depth_bracket += 1
-        elif c == ']': depth_bracket -= 1
+        if c == "{":
+            depth_brace += 1
+        elif c == "}":
+            depth_brace -= 1
+        elif c == "[":
+            depth_bracket += 1
+        elif c == "]":
+            depth_bracket -= 1
 
     # Close any unclosed strings
     if in_string:
         s += '"'
 
     # Remove trailing comma
-    s = re.sub(r',\s*$', '', s)
+    s = re.sub(r",\s*$", "", s)
 
     # Close brackets then braces
-    s += ']' * max(0, depth_bracket)
-    s += '}' * max(0, depth_brace)
+    s += "]" * max(0, depth_bracket)
+    s += "}" * max(0, depth_brace)
 
     try:
         parsed = json.loads(s)
@@ -491,6 +513,7 @@ def _repair_truncated_json(fragment: str) -> dict | None:
 # ---------------------------------------------------------------------------
 # Worker API call
 # ---------------------------------------------------------------------------
+
 
 def call_worker(task: dict, revision_instruction: str = "") -> dict:
     """Call the worker model API and return parsed response.
@@ -556,7 +579,11 @@ def call_worker(task: dict, revision_instruction: str = "") -> dict:
         # Robust JSON extraction — handles all common LLM output quirks
         parsed = _extract_json(raw)
         if parsed is None:
-            return {"error": f"Worker returned invalid JSON. Raw (first 500 chars): {raw[:500]}", "raw_response": raw[:2000], "latency_seconds": latency}
+            return {
+                "error": f"Worker returned invalid JSON. Raw (first 500 chars): {raw[:500]}",
+                "raw_response": raw[:2000],
+                "latency_seconds": latency,
+            }
 
         # Validate: only files_to_modify appear in changes
         allowed = set(task.get("files_to_modify", []))
@@ -579,12 +606,16 @@ def call_worker(task: dict, revision_instruction: str = "") -> dict:
         }
 
     except Exception as e:
-        return {"error": f"API call failed: {type(e).__name__}: {e}", "latency_seconds": round(time.time() - start, 1)}
+        return {
+            "error": f"API call failed: {type(e).__name__}: {e}",
+            "latency_seconds": round(time.time() - start, 1),
+        }
 
 
 # ---------------------------------------------------------------------------
 # Result handling
 # ---------------------------------------------------------------------------
+
 
 def save_result(task_id: str, result: dict) -> Path:
     """Store worker result as JSON for later apply without re-calling API."""
@@ -603,7 +634,7 @@ def load_result(task_id: str) -> dict | None:
         return None
     try:
         raw = json.loads(result_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return None
     try:
         # Parse through WorkerResult so downstream callers can rely on
@@ -625,7 +656,7 @@ def write_review(task: dict, result: dict) -> Path:
 
     # Store structured result for apply_changes to use later
     save_result(task_id, result)
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
     # List changed files with line counts, not full contents
     changes_summary = []
@@ -640,16 +671,16 @@ def write_review(task: dict, result: dict) -> Path:
 **Task spec:** .rsi/tasks/{task_id}.json
 
 ## Proof-Wrong
-{result.get('proof_wrong', '(none)')}
+{result.get("proof_wrong", "(none)")}
 
 ## Changes
 {chr(10).join(changes_summary)}
 
 ## Notes
-{result.get('notes', '(none)')}
+{result.get("notes", "(none)")}
 
 ---
-Tokens: {result.get('tokens_used', '?')} | Latency: {result.get('latency_seconds', '?')}s
+Tokens: {result.get("tokens_used", "?")} | Latency: {result.get("latency_seconds", "?")}s
 """
 
     review_path = PENDING_DIR / f"{task_id}.md"
@@ -709,9 +740,13 @@ def apply_changes(task: dict, result: dict) -> list[str]:
 def _run_verify(files: list[str]) -> bool:
     """Run self_verify on changed files. Returns True if passed."""
     import subprocess as sp
+
     result = sp.run(
         [sys.executable, "scripts/self_verify.py", "--files"] + files + ["--skip-tests"],
-        cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=60,
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     if result.returncode == 0:
         print("[RSI] Quality ratchet: VERIFY PASSED")
@@ -728,11 +763,14 @@ def _run_verify(files: list[str]) -> bool:
 def _git_checkpoint(task_id: str, files: list[str]) -> None:
     """Create a checkpoint commit for accepted changes."""
     import subprocess as sp
+
     try:
         sp.run(["git", "add"] + files, cwd=PROJECT_ROOT, capture_output=True, timeout=10)
         sp.run(
             ["git", "commit", "-m", f"rsi-checkpoint: {task_id}", "--no-verify"],
-            cwd=PROJECT_ROOT, capture_output=True, timeout=10,
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            timeout=10,
         )
         print(f"[RSI] Quality ratchet: checkpoint commit (rsi-checkpoint: {task_id})")
     except Exception:
@@ -756,7 +794,7 @@ def log_delegation(task: dict, result: dict, verdict: str = "PENDING") -> None:
     _ensure_dirs()
     config = _load_worker_config()
     event = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "task_id": task.get("id"),
         "worker_model": config.get("model"),
         "verdict": verdict,
@@ -771,6 +809,7 @@ def log_delegation(task: dict, result: dict, verdict: str = "PENDING") -> None:
 # ---------------------------------------------------------------------------
 # Parallel delegation (inspired by ccswarm)
 # ---------------------------------------------------------------------------
+
 
 def delegate_parallel(task_files: list[str], max_workers: int = 3) -> list[dict]:
     """Send tasks to MiniMax with DAG-aware parallel execution.
@@ -843,10 +882,13 @@ def delegate_parallel(task_files: list[str], max_workers: int = 3) -> list[dict]
                         result = future.result()
                         all_results.append(result)
                     except Exception as e:
-                        all_results.append({
-                            "task_id": task.get("id"), "status": "error",
-                            "error": str(e),
-                        })
+                        all_results.append(
+                            {
+                                "task_id": task.get("id"),
+                                "status": "error",
+                                "error": str(e),
+                            }
+                        )
 
     return all_results
 
@@ -861,7 +903,8 @@ def _execute_single(task: dict) -> dict:
     write_review(task, result)
     log_delegation(task, result, "PENDING")
     return {
-        "task_id": task_id, "status": "pending",
+        "task_id": task_id,
+        "status": "pending",
         "changes": list(result.get("changes", {}).keys()),
         "proof_wrong": result.get("proof_wrong", ""),
     }
@@ -994,11 +1037,14 @@ def _execute_group(group: list[dict], group_num: int, total_groups: int) -> list
 
         write_review(task, result)
         log_delegation(task, result, "PENDING")
-        results.append({
-            "task_id": task_id, "status": "pending",
-            "changes": list(result.get("changes", {}).keys()),
-            "proof_wrong": result.get("proof_wrong", ""),
-        })
+        results.append(
+            {
+                "task_id": task_id,
+                "status": "pending",
+                "changes": list(result.get("changes", {}).keys()),
+                "proof_wrong": result.get("proof_wrong", ""),
+            }
+        )
 
     return results
 
@@ -1006,6 +1052,7 @@ def _execute_group(group: list[dict], group_num: int, total_groups: int) -> list
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def cmd_delegate(args):
     """Send a task to the worker model."""
@@ -1049,9 +1096,12 @@ def cmd_delegate(args):
 
         # Run self-verify
         import subprocess
+
         verify = subprocess.run(
             [sys.executable, "scripts/self_verify.py", "--files"] + applied + ["--skip-tests"],
-            cwd=PROJECT_ROOT, capture_output=True, text=True,
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
         )
         if verify.returncode == 0:
             print("Self-verify: PASSED")
@@ -1086,12 +1136,16 @@ def cmd_history(args):
     print(f"{'=' * 60}\n")
     for e in events[-20:]:
         ts = e.get("timestamp", "?")[:19]
-        print(f"  {ts}  {e.get('task_id', '?'):<12}  {e.get('verdict', '?'):<10}  "
-              f"{e.get('files_modified', 0)} files  {e.get('worker_latency_seconds', 0)}s")
+        print(
+            f"  {ts}  {e.get('task_id', '?'):<12}  {e.get('verdict', '?'):<10}  "
+            f"{e.get('files_modified', 0)} files  {e.get('worker_latency_seconds', 0)}s"
+        )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="RSI Delegation Engine -- send tasks to worker model")
+    parser = argparse.ArgumentParser(
+        description="RSI Delegation Engine -- send tasks to worker model"
+    )
     parser.add_argument("task_file", nargs="?", help="Path to task spec JSON file")
     parser.add_argument("--apply", action="store_true", help="Apply changes (default: dry-run)")
     parser.add_argument("--revise", help="Revision instruction for the worker")

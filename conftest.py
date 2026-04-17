@@ -1,4 +1,5 @@
 """Pytest configuration — ensures project root is on sys.path."""
+
 import sys
 from pathlib import Path
 

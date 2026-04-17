@@ -40,7 +40,7 @@ def main():
             tool_input = data.get("tool_input", data)
         else:
             tool_input = {}
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         tool_input = {}
 
     # Try to read port from port file (fast — no imports needed)
@@ -85,7 +85,9 @@ def main():
         result = subprocess.run(
             [sys.executable, "scripts/hooks.py", action],
             input=json.dumps({"tool_input": tool_input}),
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.stdout:
             print(result.stdout, end="")
@@ -93,13 +95,15 @@ def main():
             print(result.stderr, end="", file=sys.stderr)
         sys.exit(result.returncode)
 
-    except socket.timeout:
+    except TimeoutError:
         # Daemon hung — fall back
         print("[RSI] Hook daemon timeout. Falling back to direct mode.", file=sys.stderr)
         result = subprocess.run(
             [sys.executable, "scripts/hooks.py", action],
             input=json.dumps({"tool_input": tool_input}),
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.stdout:
             print(result.stdout, end="")

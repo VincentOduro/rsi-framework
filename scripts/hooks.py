@@ -15,7 +15,7 @@ at most once per invocation and reusing the result.
 import json
 import os
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 PROJECT_ROOT = Path(os.environ.get("RSI_PROJECT_ROOT", Path(__file__).parent.parent.resolve()))
@@ -43,7 +43,7 @@ def _read_cached(path: Path) -> str | None:
         if path.exists():
             try:
                 _cache[key] = path.read_text()
-            except IOError:
+            except OSError:
                 _cache[key] = None
         else:
             _cache[key] = None
@@ -58,6 +58,7 @@ def _invalidate_cache(path: Path) -> None:
 # ---------------------------------------------------------------------------
 # State management
 # ---------------------------------------------------------------------------
+
 
 def _load_read_files() -> set[str]:
     content = _read_cached(STATE_FILE)
@@ -112,6 +113,7 @@ def _relative_path(filepath: str) -> str:
 # Session management -- single read, multiple uses
 # ---------------------------------------------------------------------------
 
+
 def _load_session_data() -> dict | None:
     """Load session data once, return parsed dict or None."""
     content = _read_cached(SESSION_FILE)
@@ -130,7 +132,7 @@ def _is_session_expired() -> bool:
     try:
         ts = datetime.fromisoformat(data["timestamp"])
         ttl = int(data.get("ttl_hours", 24))
-        return (datetime.now(timezone.utc) - ts) > timedelta(hours=ttl)
+        return (datetime.now(UTC) - ts) > timedelta(hours=ttl)
     except (KeyError, ValueError):
         return True
 
@@ -143,7 +145,7 @@ def _get_session_time_remaining() -> tuple[bool, int]:
     try:
         ts = datetime.fromisoformat(data["timestamp"])
         ttl = int(data.get("ttl_hours", 24))
-        remaining = timedelta(hours=ttl) - (datetime.now(timezone.utc) - ts)
+        remaining = timedelta(hours=ttl) - (datetime.now(UTC) - ts)
         minutes = int(remaining.total_seconds() / 60)
         return (0 < minutes < 60), max(0, minutes)
     except (KeyError, ValueError):
@@ -153,6 +155,7 @@ def _get_session_time_remaining() -> tuple[bool, int]:
 # ---------------------------------------------------------------------------
 # FAIL-index -- cached read, actual relevance filtering
 # ---------------------------------------------------------------------------
+
 
 def _get_relevant_fail_entries(filepath: str) -> list[str]:
     """Return FAIL-index entries relevant to this file.
@@ -174,12 +177,14 @@ def _get_relevant_fail_entries(filepath: str) -> list[str]:
         if line.strip().startswith("| FAIL-"):
             parts = [p.strip() for p in line.split("|") if p.strip()]
             if len(parts) >= 3:
-                all_entries.append({
-                    "id": parts[0],
-                    "mode": parts[1],
-                    "rule": parts[2],
-                    "text": f"  {parts[0]}: {parts[1]} -> {parts[2]}",
-                })
+                all_entries.append(
+                    {
+                        "id": parts[0],
+                        "mode": parts[1],
+                        "rule": parts[2],
+                        "text": f"  {parts[0]}: {parts[1]} -> {parts[2]}",
+                    }
+                )
 
     if not all_entries:
         return []
@@ -198,9 +203,9 @@ def _get_relevant_fail_entries(filepath: str) -> list[str]:
             continue
 
         # File-type-specific matching
-        if suffix == ".py" and any(kw in mode_lower for kw in ["import", "syntax", "test"]):
-            relevant.append(entry["text"])
-        elif "test" in filepath_lower and "test" in mode_lower:
+        if (suffix == ".py" and any(kw in mode_lower for kw in ["import", "syntax", "test"])) or (
+            "test" in filepath_lower and "test" in mode_lower
+        ):
             relevant.append(entry["text"])
 
     # Return relevant entries, or top 3 universal ones if no matches
@@ -212,6 +217,7 @@ def _get_relevant_fail_entries(filepath: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # Delegation trail -- cached reads
 # ---------------------------------------------------------------------------
+
 
 def _has_delegation_trail(filepath: str) -> bool:
     """Check if accepted reviews authorize this file."""
@@ -232,7 +238,7 @@ def _has_override(filepath: str) -> bool:
         return False
 
     filepath = filepath.replace("\\", "/")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     for of in OVERRIDES_DIR.glob("*.json"):
         content = _read_cached(of)
@@ -244,7 +250,9 @@ def _has_override(filepath: str) -> bool:
             if not pattern:
                 continue
             # Match exact or wildcard
-            if pattern != filepath and not (pattern.endswith("*") and filepath.startswith(pattern[:-1])):
+            if pattern != filepath and not (
+                pattern.endswith("*") and filepath.startswith(pattern[:-1])
+            ):
                 continue
             # Check expiry
             created = datetime.fromisoformat(data.get("created", "2000-01-01"))
@@ -265,7 +273,7 @@ def create_override(filepath: str, reason: str, ttl_minutes: int = 60) -> Path:
     data = {
         "filepath": filepath,
         "reason": reason,
-        "created": datetime.now(timezone.utc).isoformat(),
+        "created": datetime.now(UTC).isoformat(),
         "ttl_minutes": ttl_minutes,
     }
     override_file.write_text(json.dumps(data, indent=2))
@@ -275,6 +283,7 @@ def create_override(filepath: str, reason: str, ttl_minutes: int = 60) -> Path:
 # ---------------------------------------------------------------------------
 # Hook handlers
 # ---------------------------------------------------------------------------
+
 
 def handle_pre_read(tool_input: dict) -> None:
     filepath = tool_input.get("file_path", "")
@@ -291,6 +300,7 @@ def _build_edit_context(filepath: str) -> dict:
     sensitivity = "guarded"  # safe default
     try:
         from scripts.classify_file import classify_file
+
         sensitivity = classify_file(rel)
     except ImportError:
         pass
@@ -320,6 +330,7 @@ def handle_pre_edit(tool_input: dict) -> None:
     # Try declarative rules engine first
     try:
         from scripts.rules_engine import get_engine
+
         engine = get_engine()
         allowed, messages = engine.evaluate("pre_edit", context)
         for msg in messages:
@@ -337,9 +348,14 @@ def handle_pre_edit(tool_input: dict) -> None:
         if context["role"] == "worker" and context["sensitivity"] == "constitution":
             print(f"[RSI] BLOCKED: '{rel}' is constitution-level.")
             sys.exit(1)
-        if context["minimax_key_set"] and context["role"] != "worker" and \
-           context["sensitivity"] in ("guarded", "open") and context["file_exists"] and \
-           not context["has_delegation"] and not context["has_override"]:
+        if (
+            context["minimax_key_set"]
+            and context["role"] != "worker"
+            and context["sensitivity"] in ("guarded", "open")
+            and context["file_exists"]
+            and not context["has_delegation"]
+            and not context["has_override"]
+        ):
             print(f"[RSI] DELEGATION GATE BLOCKED: '{rel}'.")
             sys.exit(1)
 
@@ -375,6 +391,7 @@ def handle_pre_bash(tool_input: dict) -> None:
 
     try:
         from scripts.rules_engine import get_engine
+
         engine = get_engine()
         allowed, messages = engine.evaluate("pre_bash", context)
         for msg in messages:
@@ -392,6 +409,7 @@ def handle_pre_bash(tool_input: dict) -> None:
 # Main dispatcher
 # ---------------------------------------------------------------------------
 
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: hooks.py <pre-edit|post-edit|pre-read|pre-bash>", file=sys.stderr)
@@ -406,7 +424,7 @@ def main():
             tool_input = data.get("tool_input", data)
         else:
             tool_input = {}
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         tool_input = {}
 
     handlers = {

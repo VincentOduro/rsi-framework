@@ -3,6 +3,7 @@
 
 def test_classify_docs_only():
     from scripts.ceremony import classify_change
+
     result = classify_change(
         files_changed=["README.md", "CHANGELOG.md"],
         lines_added=10,
@@ -15,6 +16,7 @@ def test_classify_docs_only():
 
 def test_classify_small_code_change():
     from scripts.ceremony import classify_change
+
     result = classify_change(
         files_changed=["src/auth.py"],
         lines_added=15,
@@ -26,6 +28,7 @@ def test_classify_small_code_change():
 
 def test_classify_large_change():
     from scripts.ceremony import classify_change
+
     files = [f"src/module_{i}.py" for i in range(8)]
     result = classify_change(
         files_changed=files,
@@ -37,6 +40,7 @@ def test_classify_large_change():
 
 def test_classify_mixed_change():
     from scripts.ceremony import classify_change
+
     result = classify_change(
         files_changed=["src/api.py", "README.md", "config.yaml"],
         lines_added=50,
@@ -50,6 +54,7 @@ def test_classify_mixed_change():
 
 def test_required_steps_exist():
     from scripts.ceremony import CEREMONY_STEPS
+
     assert "minimal" in CEREMONY_STEPS
     assert "standard" in CEREMONY_STEPS
     assert "thorough" in CEREMONY_STEPS
@@ -60,6 +65,7 @@ def test_required_steps_exist():
 
 def test_classify_returns_required_steps():
     from scripts.ceremony import classify_change
+
     result = classify_change(files_changed=["src/main.py"], lines_added=10, lines_removed=2)
     assert "required_steps" in result
     assert len(result["required_steps"]) > 0
@@ -67,6 +73,7 @@ def test_classify_returns_required_steps():
 
 def test_test_files_classified():
     from scripts.ceremony import classify_change
+
     result = classify_change(
         files_changed=["tests/test_auth.py", "src/auth.py"],
         lines_added=30,

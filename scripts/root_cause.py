@@ -63,14 +63,16 @@ def _load_analyses() -> list[dict]:
             elif stripped.startswith("**Status:**"):
                 status = stripped.replace("**Status:**", "").strip().lower()
 
-        analyses.append({
-            "id": rca_id,
-            "title": title,
-            "whys": whys,
-            "countermeasure": countermeasure,
-            "fail_id": fail_id,
-            "status": status,
-        })
+        analyses.append(
+            {
+                "id": rca_id,
+                "title": title,
+                "whys": whys,
+                "countermeasure": countermeasure,
+                "fail_id": fail_id,
+                "status": status,
+            }
+        )
     return analyses
 
 
@@ -98,6 +100,7 @@ def _next_fail_id() -> str:
 # ---------------------------------------------------------------------------
 # Analysis creation
 # ---------------------------------------------------------------------------
+
 
 def create_analysis(
     title: str,
@@ -161,6 +164,7 @@ def create_analysis(
     # Record in metrics
     try:
         from scripts.metrics import record_defect
+
         record_defect(task=task, severity="HIGH", found_by="5-whys", description=title)
     except ImportError:
         pass
@@ -203,13 +207,13 @@ def close_analysis(rca_id: str, verified: bool = False, notes: str = "") -> bool
     if not ROOT_CAUSES_FILE.exists():
         return False
     content = ROOT_CAUSES_FILE.read_text()
-    old = f"**Status:** open"
+    old = "**Status:** open"
     status = "verified" if verified else "closed"
     # Find the right RCA section and update its status
     pattern = rf"(## {rca_id}:.*?)\*\*Status:\*\* open"
     match = re.search(pattern, content, re.DOTALL)
     if match:
-        content = content[:match.end() - len("open")] + status + content[match.end():]
+        content = content[: match.end() - len("open")] + status + content[match.end() :]
         if notes:
             content = content.replace(
                 f"**Status:** {status}",
@@ -225,9 +229,10 @@ def close_analysis(rca_id: str, verified: bool = False, notes: str = "") -> bool
 # Interactive 5-Whys
 # ---------------------------------------------------------------------------
 
+
 def interactive_five_whys() -> dict | None:
     """Guide the user through a 5-Whys analysis interactively."""
-    from scripts.colors import green, red, yellow, cyan, header
+    from scripts.colors import cyan, green, header, red, yellow
 
     print(header("5-WHYS ROOT CAUSE ANALYSIS"))
     print("\nThis analysis traces a defect to its systemic root cause.")
@@ -244,7 +249,7 @@ def interactive_five_whys() -> dict | None:
     files = [f.strip() for f in files_str.split(",") if f.strip()] if files_str else []
 
     print(f"\n{yellow('Now answer WHY this defect occurred.')}")
-    print(f"Each answer should explain the PREVIOUS answer.\n")
+    print("Each answer should explain the PREVIOUS answer.\n")
 
     whys = []
     for i in range(1, 6):
@@ -266,7 +271,7 @@ def interactive_five_whys() -> dict | None:
         whys.append(answer)
 
         if i >= 3:
-            go_deeper = input(f"  Go deeper? (y/N): ").strip().lower()
+            go_deeper = input("  Go deeper? (y/N): ").strip().lower()
             if go_deeper != "y":
                 break
 
@@ -302,6 +307,7 @@ def interactive_five_whys() -> dict | None:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def main():
     from scripts.colors import green, red, yellow

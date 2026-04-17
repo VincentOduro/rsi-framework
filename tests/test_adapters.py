@@ -14,8 +14,10 @@ if str(PROJECT_ROOT) not in sys.path:
 # Rules engine tests
 # ---------------------------------------------------------------------------
 
+
 def test_rules_have_required_fields():
     from adapters.base import RSIRules
+
     for rule in RSIRules.RULES:
         assert "id" in rule
         assert "name" in rule
@@ -25,6 +27,7 @@ def test_rules_have_required_fields():
 
 def test_system_prompt_generation():
     from adapters.base import RSIRules
+
     prompt = RSIRules.generate_system_prompt()
     assert len(prompt) > 100
     assert "Genchi Genbutsu" in prompt
@@ -34,6 +37,7 @@ def test_system_prompt_generation():
 
 def test_tool_definitions_generation():
     from adapters.base import RSIRules
+
     defs = RSIRules.generate_tool_definitions()
     assert len(defs) >= 4
     names = [d["name"] for d in defs]
@@ -44,6 +48,7 @@ def test_tool_definitions_generation():
 
 def test_ceremony_levels_defined():
     from adapters.base import RSIRules
+
     assert "minimal" in RSIRules.CEREMONY_LEVELS
     assert "standard" in RSIRules.CEREMONY_LEVELS
     assert "thorough" in RSIRules.CEREMONY_LEVELS
@@ -54,8 +59,10 @@ def test_ceremony_levels_defined():
 # Tool wrapper tests
 # ---------------------------------------------------------------------------
 
+
 def test_session_creation(tmp_path):
     from adapters.tool_wrappers import RSISession
+
     session = RSISession(tmp_path)
     session.start()
     assert not session.is_expired()
@@ -64,6 +71,7 @@ def test_session_creation(tmp_path):
 
 def test_read_records_file(tmp_path):
     from adapters.tool_wrappers import RSISession
+
     session = RSISession(tmp_path)
     session.start()
 
@@ -78,7 +86,8 @@ def test_read_records_file(tmp_path):
 
 
 def test_edit_blocked_without_read(tmp_path):
-    from adapters.tool_wrappers import RSISession, RSIError
+    from adapters.tool_wrappers import RSIError, RSISession
+
     session = RSISession(tmp_path)
     session.start()
 
@@ -96,6 +105,7 @@ def test_edit_blocked_without_read(tmp_path):
 
 def test_edit_allowed_after_read(tmp_path):
     from adapters.tool_wrappers import RSISession
+
     session = RSISession(tmp_path)
     session.start()
 
@@ -110,6 +120,7 @@ def test_edit_allowed_after_read(tmp_path):
 
 def test_write_new_file_allowed(tmp_path):
     from adapters.tool_wrappers import RSISession
+
     session = RSISession(tmp_path)
     session.start()
 
@@ -119,7 +130,8 @@ def test_write_new_file_allowed(tmp_path):
 
 
 def test_run_command_blocks_no_verify(tmp_path):
-    from adapters.tool_wrappers import RSISession, RSIError
+    from adapters.tool_wrappers import RSIError, RSISession
+
     session = RSISession(tmp_path)
     session.start()
 
@@ -132,7 +144,8 @@ def test_run_command_blocks_no_verify(tmp_path):
 
 
 def test_capture_requires_proof_wrong(tmp_path):
-    from adapters.tool_wrappers import RSISession, RSIError
+    from adapters.tool_wrappers import RSIError, RSISession
+
     session = RSISession(tmp_path)
     session.start()
 
@@ -145,6 +158,7 @@ def test_capture_requires_proof_wrong(tmp_path):
 
 def test_make_tool_functions(tmp_path):
     from adapters.tool_wrappers import RSISession, make_tool_functions
+
     session = RSISession(tmp_path)
     session.start()
 
@@ -159,6 +173,7 @@ def test_make_tool_functions(tmp_path):
 
 def test_function_call_handler(tmp_path):
     from adapters.tool_wrappers import RSISession, make_function_call_handler
+
     session = RSISession(tmp_path)
     session.start()
 
@@ -185,15 +200,19 @@ def test_function_call_handler(tmp_path):
 # Platform adapter tests
 # ---------------------------------------------------------------------------
 
+
 def test_adapter_registry():
-    import adapters.claude_code
-    import adapters.minimax
-    import adapters.cursor
-    import adapters.copilot
+    # Side-effect imports — each module's @register_adapter decorator runs on
+    # import and populates AVAILABLE_ADAPTERS. Keep the noqa markers so ruff
+    # F401 does not strip them again.
     import adapters.aider
-    import adapters.openai_agents
-    import adapters.langchain_adapter
+    import adapters.claude_code
+    import adapters.copilot
+    import adapters.cursor
     import adapters.generic
+    import adapters.langchain_adapter
+    import adapters.minimax
+    import adapters.openai_agents  # noqa: F401
     from adapters.base import AVAILABLE_ADAPTERS
 
     assert "claude-code" in AVAILABLE_ADAPTERS
@@ -208,6 +227,7 @@ def test_adapter_registry():
 
 def test_claude_adapter_generates_files(tmp_path):
     from adapters.claude_code import ClaudeCodeAdapter
+
     adapter = ClaudeCodeAdapter(tmp_path)
     files = adapter.generate_files()
     assert "CLAUDE.md" in files
@@ -220,6 +240,7 @@ def test_claude_adapter_generates_files(tmp_path):
 
 def test_minimax_adapter_generates_files(tmp_path):
     from adapters.minimax import MiniMaxAdapter
+
     adapter = MiniMaxAdapter(tmp_path)
     files = adapter.generate_files()
     assert "opencode_wrapper.sh" in files
@@ -236,18 +257,21 @@ def test_minimax_adapter_generates_files(tmp_path):
 
 def test_minimax_adapter_supports_tool_enforcement():
     from adapters.minimax import MiniMaxAdapter
+
     adapter = MiniMaxAdapter()
     assert adapter.supports_tool_enforcement is True
 
 
 def test_cursor_adapter_no_tool_enforcement():
     from adapters.cursor import CursorAdapter
+
     adapter = CursorAdapter()
     assert adapter.supports_tool_enforcement is False
 
 
 def test_adapter_install(tmp_path):
     from adapters.cursor import CursorAdapter
+
     adapter = CursorAdapter(tmp_path)
     created = adapter.install()
     assert ".cursorrules" in created
@@ -257,14 +281,15 @@ def test_adapter_install(tmp_path):
 
 
 def test_all_adapters_generate_nonempty_files(tmp_path):
-    import adapters.claude_code
-    import adapters.minimax
-    import adapters.cursor
-    import adapters.copilot
+    # Side-effect imports — see note in test_adapter_registry.
     import adapters.aider
-    import adapters.openai_agents
-    import adapters.langchain_adapter
+    import adapters.claude_code
+    import adapters.copilot
+    import adapters.cursor
     import adapters.generic
+    import adapters.langchain_adapter
+    import adapters.minimax
+    import adapters.openai_agents  # noqa: F401
     from adapters.base import AVAILABLE_ADAPTERS
 
     for pid, cls in AVAILABLE_ADAPTERS.items():

@@ -77,7 +77,13 @@ def _load_architecture() -> dict:
                     result[current_level].append(pattern)
 
         # End of patterns section (next non-indented non-empty non-comment line)
-        if in_patterns and stripped and not stripped.startswith("-") and not stripped.startswith("#") and stripped != "patterns:":
+        if (
+            in_patterns
+            and stripped
+            and not stripped.startswith("-")
+            and not stripped.startswith("#")
+            and stripped != "patterns:"
+        ):
             if not stripped.startswith("description:"):
                 in_patterns = False
 
@@ -127,8 +133,11 @@ def main():
     parser.add_argument("files", nargs="*", help="File path(s) to classify")
     parser.add_argument("--batch", action="store_true", help="Classify multiple files")
     parser.add_argument("--json", action="store_true", help="JSON output")
-    parser.add_argument("--check-worker", action="store_true",
-                        help="Exit 1 if any file is constitution-level (for hook integration)")
+    parser.add_argument(
+        "--check-worker",
+        action="store_true",
+        help="Exit 1 if any file is constitution-level (for hook integration)",
+    )
     args = parser.parse_args()
 
     if not args.files:

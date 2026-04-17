@@ -10,7 +10,6 @@ from adapters.base import BaseAdapter, RSIRules, register_adapter
 
 @register_adapter
 class CopilotAdapter(BaseAdapter):
-
     @property
     def platform_name(self) -> str:
         return "GitHub Copilot"
@@ -32,7 +31,7 @@ class CopilotAdapter(BaseAdapter):
         ]
         for rule in rules.RULES:
             lines.append(f"## {rule['name']}")
-            lines.append(rule['rule'])
+            lines.append(rule["rule"])
             lines.append("")
 
         lines.append("## Required workflow after code changes")

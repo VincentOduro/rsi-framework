@@ -31,36 +31,35 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 PROJECT_ROOT = Path(os.environ.get("RSI_PROJECT_ROOT", Path(__file__).parent.parent.resolve()))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 try:
     from hooks import (
-        handle_pre_read,
-        handle_pre_edit,
+        _get_relevant_fail_entries,
+        _is_session_expired,
+        _load_read_files,
+        _record_file_edited,
+        _record_file_read,
+        _relative_path,
         handle_post_edit,
         handle_pre_bash,
-        _relative_path,
-        _record_file_read,
-        _record_file_edited,
-        _load_read_files,
-        _is_session_expired,
-        _get_relevant_fail_entries,
+        handle_pre_edit,
+        handle_pre_read,
     )
 except ImportError:
     from scripts.hooks import (
-        handle_pre_read,
-        handle_pre_edit,
+        _get_relevant_fail_entries,
+        _is_session_expired,
+        _load_read_files,
+        _record_file_edited,
+        _record_file_read,
+        _relative_path,
         handle_post_edit,
         handle_pre_bash,
-        _relative_path,
-        _record_file_read,
-        _record_file_edited,
-        _load_read_files,
-        _is_session_expired,
-        _get_relevant_fail_entries,
+        handle_pre_edit,
+        handle_pre_read,
     )
 
 
@@ -156,8 +155,8 @@ def check_edit_allowed(file_path: str) -> bool:
     if rel not in read_files:
         if Path(file_path).exists():
             print(f"[RSI] File '{rel}' has not been read in this session.")
-            print(f"[RSI] Genchi Genbutsu: you must read a file before editing it.")
-            print(f"[RSI] Read the file first, then retry the edit.")
+            print("[RSI] Genchi Genbutsu: you must read a file before editing it.")
+            print("[RSI] Read the file first, then retry the edit.")
             sys.exit(1)
         return True
 
@@ -233,7 +232,9 @@ def cmd_opencode(args: list) -> None:
     action, tool_input = parse_args_opencode(args)
 
     if action == "help":
-        print("Usage: universal_hook.py opencode <pre-read|pre-edit|post-edit|pre-bash|session-check> [--file FILE] [--command COMMAND]")
+        print(
+            "Usage: universal_hook.py opencode <pre-read|pre-edit|post-edit|pre-bash|session-check> [--file FILE] [--command COMMAND]"
+        )
         sys.exit(0)
 
     handlers = {
@@ -241,7 +242,10 @@ def cmd_opencode(args: list) -> None:
         "pre-edit": lambda: handle_pre_edit(tool_input),
         "post-edit": lambda: handle_post_edit(tool_input),
         "pre-bash": lambda: handle_pre_bash(tool_input),
-        "session-check": lambda: (_is_session_expired() and print("[RSI] Session expired") or print("[RSI] Session active")),
+        "session-check": lambda: (
+            (_is_session_expired() and print("[RSI] Session expired"))
+            or print("[RSI] Session active")
+        ),
     }
 
     handler = handlers.get(action)

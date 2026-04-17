@@ -16,18 +16,17 @@ Usage:
 
 import argparse
 import json
-import os
-import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 _BOOTSTRAP_ROOT = Path(__file__).parent.parent.resolve()
 if str(_BOOTSTRAP_ROOT) not in sys.path:
     sys.path.insert(0, str(_BOOTSTRAP_ROOT))
 
-from engine.protocol import DelegationEvent
 from pydantic import ValidationError
+
+from engine.protocol import DelegationEvent
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 REVIEWS_DIR = PROJECT_ROOT / ".memory" / "reviews"
@@ -70,7 +69,7 @@ def _update_delegation_log(task_id: str, verdict: str) -> None:
     for event in reversed(events):
         if event.get("task_id") == task_id and event.get("verdict") == "PENDING":
             event["verdict"] = verdict
-            event["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+            event["reviewed_at"] = datetime.now(UTC).isoformat()
             break
 
     with open(DELEGATIONS_LOG, "w") as f:
@@ -81,6 +80,7 @@ def _update_delegation_log(task_id: str, verdict: str) -> None:
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
+
 
 def cmd_list(args):
     pending = _pending_reviews()
@@ -101,7 +101,7 @@ def cmd_list(args):
                 desc = line.replace("**Task:**", "").strip()
                 break
         print(f"  {task_id}  {desc[:50]}")
-    print(f"\nReview with: python3 scripts/review_queue.py show <task_id>")
+    print("\nReview with: python3 scripts/review_queue.py show <task_id>")
 
 
 def cmd_show(args):
@@ -138,6 +138,7 @@ def cmd_accept(args):
     # Record metric
     try:
         from scripts.metrics import record
+
         record("delegation_reviewed", task=args.task_id, verdict="accepted")
     except ImportError:
         pass
@@ -161,6 +162,7 @@ def cmd_accept(args):
             # Import and call apply_changes directly
             sys.path.insert(0, str(PROJECT_ROOT))
             from scripts.delegate import apply_changes
+
             applied = apply_changes(task, result)
             if applied:
                 print(f"Applied: {', '.join(applied)}")
@@ -183,7 +185,7 @@ def cmd_reject(args):
 
     dest = REJECTED_DIR / f"{args.task_id}.md"
     content = review_file.read_text()
-    content = content.replace("**Status:** PENDING REVIEW", f"**Status:** REJECTED")
+    content = content.replace("**Status:** PENDING REVIEW", "**Status:** REJECTED")
     reason = args.reason or "(no reason given)"
     content += f"\n## Rejection Reason\n{reason}\n"
     dest.write_text(content)
@@ -193,6 +195,7 @@ def cmd_reject(args):
 
     try:
         from scripts.metrics import record
+
         record("delegation_reviewed", task=args.task_id, verdict="rejected", reason=reason)
     except ImportError:
         pass
@@ -209,10 +212,9 @@ def cmd_revise(args):
 
     instruction = args.instruction or "(no instruction given)"
 
-
     # Update review file with revision note
     content = review_file.read_text()
-    content += f"\n## Revision Requested\n**Instruction:** {instruction}\n**Date:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
+    content += f"\n## Revision Requested\n**Instruction:** {instruction}\n**Date:** {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}\n"
     review_file.write_text(content)
 
     # Re-delegate with revision instruction
@@ -220,6 +222,7 @@ def cmd_revise(args):
     if task_file.exists():
         print(f"Sending revision to worker: {instruction}")
         import subprocess
+
         subprocess.run(
             [sys.executable, "scripts/delegate.py", str(task_file), "--revise", instruction],
             cwd=PROJECT_ROOT,
@@ -239,7 +242,6 @@ def cmd_gate(args):
         sys.exit(1)
     else:
         sys.exit(0)
-
 
 
 def main():

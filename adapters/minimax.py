@@ -19,14 +19,11 @@ opencode is the primary CLI interface for MiniMax-M2.7. The shell wrapper
 intercepts cat/less/vim/nano/sed/ed commands to track reads and edits.
 """
 
-import json
-from pathlib import Path
 from adapters.base import BaseAdapter, RSIRules, register_adapter
 
 
 @register_adapter
 class MiniMaxAdapter(BaseAdapter):
-
     @property
     def platform_name(self) -> str:
         return "opencode / MiniMax-M2.7"
@@ -61,7 +58,7 @@ class MiniMaxAdapter(BaseAdapter):
             source opencode_wrapper.sh   # Activate in current shell
             # Now opencode's file operations go through RSI enforcement
         """
-        return r'''#!/bin/bash
+        return r"""#!/bin/bash
 # RSI Framework — Shell wrapper for opencode / MiniMax-M2.7
 #
 # Source this file to activate enforcement in your shell:
@@ -282,7 +279,7 @@ echo "[RSI] Shell wrapper active. File operations are now enforced."
 echo "[RSI] Read commands (cat/less/head/tail) record reads."
 echo "[RSI] Edit commands (vim/nano/sed/tee) require prior read."
 echo "[RSI] git commit --no-verify is blocked."
-'''
+"""
 
     def _generate_tool_module(self) -> str:
         """Generate a standalone Python module for MiniMax API integration.

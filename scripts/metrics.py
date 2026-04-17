@@ -16,10 +16,8 @@ Storage: .memory/metrics/events.jsonl (append-only, one JSON object per line)
 """
 
 import json
-import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 METRICS_DIR = PROJECT_ROOT / ".memory" / "metrics"
@@ -30,12 +28,13 @@ EVENTS_FILE = METRICS_DIR / "events.jsonl"
 # Event recording
 # ---------------------------------------------------------------------------
 
+
 def _ensure_dir() -> None:
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def record(event_type: str, **kwargs) -> dict:
@@ -63,17 +62,24 @@ def record_ceremony(level: str, duration_minutes: float, task: str = "") -> dict
     return record("ceremony_complete", level=level, duration_min=duration_minutes, task=task)
 
 
-def record_defect(task: str, severity: str, found_by: str = "review", description: str = "") -> dict:
-    return record("defect_found", task=task, severity=severity, found_by=found_by, description=description)
+def record_defect(
+    task: str, severity: str, found_by: str = "review", description: str = ""
+) -> dict:
+    return record(
+        "defect_found", task=task, severity=severity, found_by=found_by, description=description
+    )
 
 
 def record_finding_outcome(finding_id: str, led_to_action: bool, action: str = "") -> dict:
-    return record("finding_outcome", finding_id=finding_id, led_to_action=led_to_action, action=action)
+    return record(
+        "finding_outcome", finding_id=finding_id, led_to_action=led_to_action, action=action
+    )
 
 
 # ---------------------------------------------------------------------------
 # Event querying
 # ---------------------------------------------------------------------------
+
 
 def load_events(event_type: str | None = None, days: int | None = None) -> list[dict]:
     """Load events, optionally filtered by type and recency."""
@@ -83,7 +89,8 @@ def load_events(event_type: str | None = None, days: int | None = None) -> list[
     cutoff = None
     if days is not None:
         from datetime import timedelta
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        cutoff = datetime.now(UTC) - timedelta(days=days)
     with open(EVENTS_FILE) as f:
         for line in f:
             line = line.strip()
@@ -110,6 +117,7 @@ def load_events(event_type: str | None = None, days: int | None = None) -> list[
 # Computed metrics
 # ---------------------------------------------------------------------------
 
+
 def cycle_times(days: int = 30) -> list[dict]:
     """Compute cycle time for each completed task in the period.
     Returns list of {task, started, completed, hours}."""
@@ -127,7 +135,14 @@ def cycle_times(days: int = 30) -> list[dict]:
                 t0 = datetime.fromisoformat(starts[task])
                 t1 = datetime.fromisoformat(e["ts"])
                 hours = (t1 - t0).total_seconds() / 3600
-                results.append({"task": task, "started": starts[task], "completed": e["ts"], "hours": round(hours, 2)})
+                results.append(
+                    {
+                        "task": task,
+                        "started": starts[task],
+                        "completed": e["ts"],
+                        "hours": round(hours, 2),
+                    }
+                )
             except (ValueError, TypeError):
                 pass
     return results
@@ -140,7 +155,11 @@ def first_pass_yield(days: int = 30) -> dict:
     first_attempts = [e for e in events if e.get("attempt", 1) == 1]
     total = len(first_attempts)
     passed = sum(1 for e in first_attempts if e.get("passed"))
-    return {"passed": passed, "total": total, "yield_pct": round(passed / total * 100, 1) if total else 0.0}
+    return {
+        "passed": passed,
+        "total": total,
+        "yield_pct": round(passed / total * 100, 1) if total else 0.0,
+    }
 
 
 def defect_rate(days: int = 30) -> dict:
@@ -148,7 +167,11 @@ def defect_rate(days: int = 30) -> dict:
     Returns {defects, tasks_completed, rate}."""
     defects = len(load_events("defect_found", days=days))
     tasks = len(load_events("task_complete", days=days))
-    return {"defects": defects, "tasks_completed": tasks, "rate": round(defects / tasks, 2) if tasks else 0.0}
+    return {
+        "defects": defects,
+        "tasks_completed": tasks,
+        "rate": round(defects / tasks, 2) if tasks else 0.0,
+    }
 
 
 def ceremony_stats(days: int = 30) -> dict:
@@ -162,7 +185,10 @@ def ceremony_stats(days: int = 30) -> dict:
         by_level.setdefault(level, []).append(e.get("duration_min", 0))
     level_stats = {}
     for level, durations in by_level.items():
-        level_stats[level] = {"count": len(durations), "avg_min": round(sum(durations) / len(durations), 1)}
+        level_stats[level] = {
+            "count": len(durations),
+            "avg_min": round(sum(durations) / len(durations), 1),
+        }
     return {
         "total_minutes": round(total, 1),
         "count": len(events),
@@ -177,7 +203,11 @@ def signal_ratio(days: int = 30) -> dict:
     events = load_events("finding_outcome", days=days)
     total = len(events)
     actioned = sum(1 for e in events if e.get("led_to_action"))
-    return {"actioned": actioned, "total": total, "ratio_pct": round(actioned / total * 100, 1) if total else 0.0}
+    return {
+        "actioned": actioned,
+        "total": total,
+        "ratio_pct": round(actioned / total * 100, 1) if total else 0.0,
+    }
 
 
 def summary(days: int = 7) -> dict:
@@ -209,13 +239,18 @@ def _defects_by_severity(days: int = 30) -> dict:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="RSI Metrics Engine")
     sub = parser.add_subparsers(dest="cmd")
 
     rec = sub.add_parser("record", help="Record a metric event")
-    rec.add_argument("event_type", help="Event type (task_start, task_complete, verify_result, defect_found, ceremony_complete, finding_outcome)")
+    rec.add_argument(
+        "event_type",
+        help="Event type (task_start, task_complete, verify_result, defect_found, ceremony_complete, finding_outcome)",
+    )
     rec.add_argument("--task", default="")
     rec.add_argument("--round", default="")
     rec.add_argument("--passed", action="store_true")
@@ -264,15 +299,21 @@ def main():
         print(f"  First-pass yield: {y['yield_pct']}% ({y['passed']}/{y['total']})")
     elif args.cmd == "defects":
         d = defect_rate()
-        print(f"  Defect rate: {d['rate']} per task ({d['defects']} defects / {d['tasks_completed']} tasks)")
+        print(
+            f"  Defect rate: {d['rate']} per task ({d['defects']} defects / {d['tasks_completed']} tasks)"
+        )
     elif args.cmd == "ceremony":
         c = ceremony_stats()
-        print(f"  Total: {c['total_minutes']}min across {c['count']} ceremonies (avg {c['avg_minutes']}min)")
+        print(
+            f"  Total: {c['total_minutes']}min across {c['count']} ceremonies (avg {c['avg_minutes']}min)"
+        )
         for level, stats in c.get("by_level", {}).items():
             print(f"    {level}: {stats['count']}x, avg {stats['avg_min']}min")
     elif args.cmd == "signal":
         s = signal_ratio()
-        print(f"  Signal ratio: {s['ratio_pct']}% ({s['actioned']}/{s['total']} findings led to action)")
+        print(
+            f"  Signal ratio: {s['ratio_pct']}% ({s['actioned']}/{s['total']} findings led to action)"
+        )
     else:
         parser.print_help()
 

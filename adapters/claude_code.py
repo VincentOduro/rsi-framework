@@ -6,13 +6,11 @@ This is the strongest enforcement path — hooks intercept at the tool layer
 before the operation happens. The model cannot bypass them.
 """
 
-from pathlib import Path
 from adapters.base import BaseAdapter, RSIRules, register_adapter
 
 
 @register_adapter
 class ClaudeCodeAdapter(BaseAdapter):
-
     @property
     def platform_name(self) -> str:
         return "Claude Code"
@@ -95,26 +93,35 @@ class ClaudeCodeAdapter(BaseAdapter):
 
     def _generate_settings(self) -> str:
         import json
+
         settings = {
             "hooks": {
                 "PreToolUse": [
                     {
                         "matcher": "Read",
-                        "hooks": [{"type": "command", "command": "python3 scripts/hooks.py pre-read"}],
+                        "hooks": [
+                            {"type": "command", "command": "python3 scripts/hooks.py pre-read"}
+                        ],
                     },
                     {
                         "matcher": "Edit|Write",
-                        "hooks": [{"type": "command", "command": "python3 scripts/hooks.py pre-edit"}],
+                        "hooks": [
+                            {"type": "command", "command": "python3 scripts/hooks.py pre-edit"}
+                        ],
                     },
                     {
                         "matcher": "Bash",
-                        "hooks": [{"type": "command", "command": "python3 scripts/hooks.py pre-bash"}],
+                        "hooks": [
+                            {"type": "command", "command": "python3 scripts/hooks.py pre-bash"}
+                        ],
                     },
                 ],
                 "PostToolUse": [
                     {
                         "matcher": "Edit|Write",
-                        "hooks": [{"type": "command", "command": "python3 scripts/hooks.py post-edit"}],
+                        "hooks": [
+                            {"type": "command", "command": "python3 scripts/hooks.py post-edit"}
+                        ],
                     },
                 ],
             }

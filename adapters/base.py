@@ -7,7 +7,6 @@ The rules never change between platforms. The enforcement mechanism does.
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
@@ -15,6 +14,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 # ---------------------------------------------------------------------------
 # RSI Rules — the single source of truth
 # ---------------------------------------------------------------------------
+
 
 class RSIRules:
     """All framework rules as structured data. Every adapter reads from here."""
@@ -86,19 +86,47 @@ class RSIRules:
     CEREMONY_LEVELS = {
         "minimal": {
             "when": "Docs/config only, <20 lines",
-            "steps": ["Capture what changed", "Proof-wrong hypothesis", "Commit with memory update"],
+            "steps": [
+                "Capture what changed",
+                "Proof-wrong hypothesis",
+                "Commit with memory update",
+            ],
         },
         "standard": {
             "when": "Normal code changes, 1-5 files",
-            "steps": ["Self-verify", "Module A: capture", "Module B: review (2 bugs, 2 opts, 1 maint)", "Module C: optimize", "Commit"],
+            "steps": [
+                "Self-verify",
+                "Module A: capture",
+                "Module B: review (2 bugs, 2 opts, 1 maint)",
+                "Module C: optimize",
+                "Commit",
+            ],
         },
         "thorough": {
             "when": "5+ files or risk factors present",
-            "steps": ["Self-verify", "Module A", "Module B", "Review open hypotheses", "Check FAIL-index", "Module C", "Commit"],
+            "steps": [
+                "Self-verify",
+                "Module A",
+                "Module B",
+                "Review open hypotheses",
+                "Check FAIL-index",
+                "Module C",
+                "Commit",
+            ],
         },
         "major": {
             "when": "10+ files or cross-module changes",
-            "steps": ["Self-verify", "Module A", "Module B (3+ each)", "All open hypotheses", "All FAIL entries", "5-Whys if defect", "Architecture review", "Module C", "Commit"],
+            "steps": [
+                "Self-verify",
+                "Module A",
+                "Module B (3+ each)",
+                "All open hypotheses",
+                "All FAIL entries",
+                "5-Whys if defect",
+                "Architecture review",
+                "Module C",
+                "Commit",
+            ],
         },
     }
 
@@ -106,7 +134,10 @@ class RSIRules:
         "first_pass_yield": {"target": ">80%", "command": "python3 scripts/metrics.py yield"},
         "defect_rate": {"target": "<0.3 per task", "command": "python3 scripts/metrics.py defects"},
         "signal_ratio": {"target": ">50%", "command": "python3 scripts/metrics.py signal"},
-        "hypothesis_quality": {"target": ">60/100 avg", "command": "python3 scripts/calibration.py score"},
+        "hypothesis_quality": {
+            "target": ">60/100 avg",
+            "command": "python3 scripts/calibration.py score",
+        },
     }
 
     ANTI_PATTERNS = [
@@ -215,7 +246,10 @@ class RSIRules:
                         "task": {"type": "string"},
                         "succeeded": {"type": "string"},
                         "failed": {"type": "string"},
-                        "proof_wrong": {"type": "string", "description": "MANDATORY: Specific, testable hypothesis about what could make this change wrong"},
+                        "proof_wrong": {
+                            "type": "string",
+                            "description": "MANDATORY: Specific, testable hypothesis about what could make this change wrong",
+                        },
                         "files_changed": {"type": "array", "items": {"type": "string"}},
                     },
                     "required": ["task", "succeeded", "failed", "proof_wrong"],
@@ -227,6 +261,7 @@ class RSIRules:
 # ---------------------------------------------------------------------------
 # Base Adapter
 # ---------------------------------------------------------------------------
+
 
 class BaseAdapter(ABC):
     """Abstract base for platform-specific adapters."""

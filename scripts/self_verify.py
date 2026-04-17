@@ -25,12 +25,10 @@ Language-agnostic design:
 """
 
 import ast
-import re
 import subprocess
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Optional, Set
 
 # ---------------------------------------------------------------------------
 # Config
@@ -47,6 +45,7 @@ PLACEHOLDER_PATTERNS = ["# TODO", "raise NotImplementedError", "pass  #", "...  
 # Language Checker Plugin System
 # ---------------------------------------------------------------------------
 
+
 class LanguageChecker(ABC):
     """Abstract base for language-specific verification plugins."""
 
@@ -57,12 +56,12 @@ class LanguageChecker(ABC):
         pass
 
     @property
-    def extensions(self) -> List[str]:
+    def extensions(self) -> list[str]:
         """File extensions this checker handles. E.g., ['.py', '.pyx']"""
         return []
 
     @property
-    def test_extensions(self) -> List[str]:
+    def test_extensions(self) -> list[str]:
         """File extensions that are test files for this language."""
         return []
 
@@ -84,11 +83,11 @@ class PythonChecker(LanguageChecker):
         return "Python"
 
     @property
-    def extensions(self) -> List[str]:
+    def extensions(self) -> list[str]:
         return [".py", ".pyx", ".pxd"]
 
     @property
-    def test_extensions(self) -> List[str]:
+    def test_extensions(self) -> list[str]:
         return ["_test.py", "_tests.py"]
 
     def check_syntax(self, file_path: Path) -> tuple[bool, str]:
@@ -141,8 +140,14 @@ class PythonChecker(LanguageChecker):
             parent = str(file_path.parent)
             module_name = file_path.stem
             result2 = subprocess.run(
-                [sys.executable, "-c", f"import sys; sys.path.insert(0, '{parent}'); import {module_name}"],
-                capture_output=True, text=True, timeout=15,
+                [
+                    sys.executable,
+                    "-c",
+                    f"import sys; sys.path.insert(0, '{parent}'); import {module_name}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
             if result2.returncode == 0:
                 return True, ""
@@ -169,7 +174,7 @@ class ShellChecker(LanguageChecker):
         return "Shell"
 
     @property
-    def extensions(self) -> List[str]:
+    def extensions(self) -> list[str]:
         return [".sh", ".bash"]
 
     def check_syntax(self, file_path: Path) -> tuple[bool, str]:
@@ -203,7 +208,7 @@ class ShellChecker(LanguageChecker):
         if shutil.which("pwsh") or shutil.which("powershell"):
             pwsh_cmd = "pwsh" if shutil.which("pwsh") else "powershell"
             script_content = file_path.read_text()
-            ps_script = f'''
+            ps_script = f"""
 $script = @'
 {script_content}
 '@
@@ -217,7 +222,7 @@ if ($parseErrors.Count -gt 0) {{
     exit 1
 }}
 exit 0
-'''
+"""
             result = subprocess.run(
                 [pwsh_cmd, "-NoProfile", "-NonInteractive", "-Command", ps_script],
                 capture_output=True,
@@ -241,7 +246,7 @@ class GenericTextChecker(LanguageChecker):
         return "Text"
 
     @property
-    def extensions(self) -> List[str]:
+    def extensions(self) -> list[str]:
         return []  # Matches nothing; used as fallback only
 
     def check_syntax(self, file_path: Path) -> tuple[bool, str]:
@@ -256,7 +261,7 @@ class GenericTextChecker(LanguageChecker):
 # Language Checker Registry
 # ---------------------------------------------------------------------------
 
-LANG_CHECKERS: List[LanguageChecker] = [
+LANG_CHECKERS: list[LanguageChecker] = [
     PythonChecker(),
     ShellChecker(),
     GenericTextChecker(),
@@ -283,6 +288,7 @@ def is_test_file(file_path: Path) -> bool:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def green(msg: str) -> str:
     return f"\033[92m{msg}\033[0m"
 
@@ -306,7 +312,7 @@ def check(label: str, cond: bool, detail: str = "") -> bool:
     return cond
 
 
-def get_changed_files() -> List[Path]:
+def get_changed_files() -> list[Path]:
     """Return list of files changed since last commit."""
     result = subprocess.run(
         ["git", "diff", "--name-only", "HEAD"],
@@ -324,7 +330,7 @@ def get_changed_files() -> List[Path]:
     return files
 
 
-def get_staged_files() -> List[Path]:
+def get_staged_files() -> list[Path]:
     """Return list of staged files."""
     result = subprocess.run(
         ["git", "diff", "--cached", "--name-only"],
@@ -342,14 +348,14 @@ def get_staged_files() -> List[Path]:
     return files
 
 
-def find_placeholder_code(file_path: Path) -> List[str]:
+def find_placeholder_code(file_path: Path) -> list[str]:
     """Scan a file for placeholder patterns. Returns list of offending lines."""
     issues = []
     try:
         content = file_path.read_text()
     except Exception:
         return [f"Could not read {file_path}"]
-    
+
     for i, line in enumerate(content.splitlines(), 1):
         for pat in PLACEHOLDER_PATTERNS:
             if pat in line:
@@ -362,6 +368,7 @@ def find_placeholder_code(file_path: Path) -> List[str]:
 # ---------------------------------------------------------------------------
 # To add project-specific checks, add entries to sanity_checks dict in main().
 # Default passes all files. Override per-filename as needed.
+
 
 def _example_sanity_check(file_path: Path) -> bool:
     """EXAMPLE: Project-specific sanity check template.
@@ -384,7 +391,8 @@ def _example_sanity_check(file_path: Path) -> bool:
 # Side-effect scan
 # ---------------------------------------------------------------------------
 
-def scan_side_effects(file_path: Path) -> List[str]:
+
+def scan_side_effects(file_path: Path) -> list[str]:
     """Look for other files that might be affected by changes to this file."""
     content = file_path.read_text()
     findings = []
@@ -422,6 +430,7 @@ def scan_side_effects(file_path: Path) -> List[str]:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def run_tests() -> bool:
     """Run pytest and return True if all pass."""
@@ -465,7 +474,7 @@ def verify_file(file_path: Path, sanity_check_func=None) -> bool:
         check(f"Sanity check ({sanity_check_func.__name__})", ok)
         if not ok:
             all_ok = False
-    elif hasattr(checker, 'check_sanity'):
+    elif hasattr(checker, "check_sanity"):
         ok, detail = checker.check_sanity(file_path)
         if not check(f"{checker.name} sanity", ok):
             if detail:
@@ -497,7 +506,9 @@ def main():
     parser = argparse.ArgumentParser(description="Post-implementation self-verification")
     parser.add_argument("--files", nargs="*", help="Specific files to check")
     parser.add_argument("--changed-only", action="store_true", help="Check only changed files")
-    parser.add_argument("--skip-tests", action="store_true", help="Skip running tests (non-Python projects)")
+    parser.add_argument(
+        "--skip-tests", action="store_true", help="Skip running tests (non-Python projects)"
+    )
     args = parser.parse_args()
 
     print("=" * 70)

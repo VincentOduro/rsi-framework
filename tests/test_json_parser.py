@@ -18,38 +18,38 @@ def test_clean_json():
 
 
 def test_json_in_markdown_fence():
-    raw = '''Here is my response:
+    raw = """Here is my response:
 ```json
 {"changes": {"test.py": "x = 1"}, "proof_wrong": "test", "notes": ""}
 ```
-'''
+"""
     result = _extract_json(raw)
     assert result is not None
     assert "changes" in result
 
 
 def test_json_in_plain_fence():
-    raw = '''```
+    raw = """```
 {"changes": {}, "proof_wrong": "test", "notes": "done"}
-```'''
+```"""
     result = _extract_json(raw)
     assert result is not None
     assert result["proof_wrong"] == "test"
 
 
 def test_json_with_commentary_before():
-    raw = '''I'll implement the changes now.
+    raw = """I'll implement the changes now.
 
-{"changes": {"src/auth.py": "def login(): pass"}, "proof_wrong": "if token expires", "notes": "added login"}'''
+{"changes": {"src/auth.py": "def login(): pass"}, "proof_wrong": "if token expires", "notes": "added login"}"""
     result = _extract_json(raw)
     assert result is not None
     assert "src/auth.py" in result["changes"]
 
 
 def test_json_with_commentary_after():
-    raw = '''{"changes": {"test.py": "assert True"}, "proof_wrong": "edge case", "notes": ""}
+    raw = """{"changes": {"test.py": "assert True"}, "proof_wrong": "edge case", "notes": ""}
 
-I hope this helps! Let me know if you need changes.'''
+I hope this helps! Let me know if you need changes."""
     result = _extract_json(raw)
     assert result is not None
     assert result["proof_wrong"] == "edge case"
@@ -76,11 +76,11 @@ def test_json_in_xml_tags():
 
 
 def test_multiple_json_blocks_picks_changes():
-    raw = '''{"status": "thinking"}
+    raw = """{"status": "thinking"}
 
 Some commentary here.
 
-{"changes": {"api.py": "code here"}, "proof_wrong": "might break", "notes": "done"}'''
+{"changes": {"api.py": "code here"}, "proof_wrong": "might break", "notes": "done"}"""
     result = _extract_json(raw)
     assert result is not None
     assert "changes" in result
@@ -145,7 +145,9 @@ def test_think_tags_with_json_inside():
 def test_apply_changes_unescapes_newlines(tmp_path):
     """apply_changes should convert literal \\n to actual newlines."""
     from unittest.mock import patch
+
     import scripts.delegate as d
+
     old_root = d.PROJECT_ROOT
     d.PROJECT_ROOT = tmp_path
 
@@ -153,9 +155,8 @@ def test_apply_changes_unescapes_newlines(tmp_path):
     result = {"changes": {"output.py": "line1\\nline2\\nline3"}}
 
     # Mock verify to pass (tmp_path files won't pass real self_verify)
-    with patch.object(d, '_run_verify', return_value=True):
-        with patch.object(d, '_git_checkpoint'):
-            applied = d.apply_changes(task, result)
+    with patch.object(d, "_run_verify", return_value=True), patch.object(d, "_git_checkpoint"):
+        applied = d.apply_changes(task, result)
 
     assert len(applied) > 0
     content = (tmp_path / "output.py").read_text()
@@ -170,16 +171,17 @@ def test_apply_changes_unescapes_newlines(tmp_path):
 def test_apply_changes_preserves_real_newlines(tmp_path):
     """apply_changes should not double-process content with real newlines."""
     from unittest.mock import patch
+
     import scripts.delegate as d
+
     old_root = d.PROJECT_ROOT
     d.PROJECT_ROOT = tmp_path
 
     task = {"id": "TEST", "files_to_modify": ["good.py"]}
     result = {"changes": {"good.py": "line1\nline2\nline3\n"}}
 
-    with patch.object(d, '_run_verify', return_value=True):
-        with patch.object(d, '_git_checkpoint'):
-            applied = d.apply_changes(task, result)
+    with patch.object(d, "_run_verify", return_value=True), patch.object(d, "_git_checkpoint"):
+        applied = d.apply_changes(task, result)
 
     content = (tmp_path / "good.py").read_text()
     assert content == "line1\nline2\nline3\n"

@@ -15,7 +15,6 @@ Usage:
 
 import argparse
 import json
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -26,6 +25,7 @@ MEMORY_ROOT = PROJECT_ROOT / ".memory"
 def _load_metrics_summary(days: int) -> dict:
     try:
         from scripts.metrics import summary
+
         return summary(days)
     except (ImportError, Exception):
         return {}
@@ -34,6 +34,7 @@ def _load_metrics_summary(days: int) -> dict:
 def _load_calibration_score() -> dict:
     try:
         from scripts.calibration import calibration_score
+
         return calibration_score()
     except (ImportError, Exception):
         return {}
@@ -46,13 +47,18 @@ def _count_open_defects() -> dict:
         return {}
     content = backlog_file.read_text()
     import re
+
     counts: dict[str, int] = {}
     # Find tasks that are not done
-    for match in re.finditer(r"\*\*status:\*\*\s*(todo|in-progress|blocked)", content, re.IGNORECASE):
+    for match in re.finditer(
+        r"\*\*status:\*\*\s*(todo|in-progress|blocked)", content, re.IGNORECASE
+    ):
         # Look backwards for priority
         start = max(0, match.start() - 200)
-        context = content[start:match.end()]
-        p_match = re.search(r"\*\*priority:\*\*\s*(CRITICAL|HIGH|MEDIUM|LOW)", context, re.IGNORECASE)
+        context = content[start : match.end()]
+        p_match = re.search(
+            r"\*\*priority:\*\*\s*(CRITICAL|HIGH|MEDIUM|LOW)", context, re.IGNORECASE
+        )
         if p_match:
             prio = p_match.group(1).upper()
             counts[prio] = counts.get(prio, 0) + 1
@@ -92,7 +98,7 @@ def _count_root_causes() -> dict:
 
 def render_dashboard(days: int = 7) -> str:
     """Render the full andon dashboard as a string."""
-    from scripts.colors import green, red, yellow, cyan, bold, dim, bar
+    from scripts.colors import bar, bold, dim, green, red, yellow
 
     metrics = _load_metrics_summary(days)
     calibration = _load_calibration_score()
@@ -131,7 +137,9 @@ def render_dashboard(days: int = 7) -> str:
     fpy_pct = fpy.get("yield_pct", 0)
     fpy_color = green if fpy_pct >= 80 else yellow if fpy_pct >= 60 else red
     if fpy.get("total"):
-        lines.append(f"  First-pass yield:      {fpy_color(f'{fpy_pct}%')} ({fpy['passed']}/{fpy['total']})")
+        lines.append(
+            f"  First-pass yield:      {fpy_color(f'{fpy_pct}%')} ({fpy['passed']}/{fpy['total']})"
+        )
 
     dr_val = dr.get("rate", 0)
     dr_color = green if dr_val < 0.3 else yellow if dr_val < 0.7 else red
@@ -141,7 +149,9 @@ def render_dashboard(days: int = 7) -> str:
     sig_pct = signal.get("ratio_pct", 0)
     sig_color = green if sig_pct >= 50 else yellow if sig_pct >= 25 else red
     if signal.get("total"):
-        lines.append(f"  Signal ratio:          {sig_color(f'{sig_pct}%')} ({signal['actioned']}/{signal['total']} findings actioned)")
+        lines.append(
+            f"  Signal ratio:          {sig_color(f'{sig_pct}%')} ({signal['actioned']}/{signal['total']} findings actioned)"
+        )
 
     # --- Open Defects ---
     lines.append("")
@@ -155,7 +165,9 @@ def render_dashboard(days: int = 7) -> str:
         for prio in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
             count = defects.get(prio, 0)
             if count:
-                prio_color = {"CRITICAL": red, "HIGH": red, "MEDIUM": yellow, "LOW": dim}.get(prio, str)
+                prio_color = {"CRITICAL": red, "HIGH": red, "MEDIUM": yellow, "LOW": dim}.get(
+                    prio, str
+                )
                 lines.append(f"  {prio_color(f'{prio:<12}')} {bar(count, 10)} {count}")
 
     # --- Calibration ---
@@ -173,7 +185,9 @@ def render_dashboard(days: int = 7) -> str:
             acc = calibration.get("accuracy_pct", 0)
             # For calibration: lower is better (means your code is usually right)
             acc_color = green if acc < 30 else yellow if acc < 60 else red
-            lines.append(f"  Confirmed/Disproven:   {calibration.get('confirmed', 0)}/{calibration.get('disproven', 0)}")
+            lines.append(
+                f"  Confirmed/Disproven:   {calibration.get('confirmed', 0)}/{calibration.get('disproven', 0)}"
+            )
             lines.append(f"  Prediction accuracy:   {acc_color(f'{acc}%')}")
 
         avg_q = calibration.get("avg_quality_score", 0)
@@ -186,7 +200,9 @@ def render_dashboard(days: int = 7) -> str:
         lines.append(bold("  ROOT CAUSE ANALYSES"))
         lines.append("  " + "-" * (w - 4))
         lines.append(f"  Total:   {root_causes['total']}")
-        lines.append(f"  Open:    {red(str(root_causes['open'])) if root_causes['open'] else green('0')}")
+        lines.append(
+            f"  Open:    {red(str(root_causes['open'])) if root_causes['open'] else green('0')}"
+        )
         lines.append(f"  Closed:  {root_causes['closed']}")
 
     # --- Knowledge Base ---
@@ -203,7 +219,9 @@ def render_dashboard(days: int = 7) -> str:
         lines.append("")
         lines.append(bold("  CEREMONY COST"))
         lines.append("  " + "-" * (w - 4))
-        lines.append(f"  Total time:   {ceremony['total_minutes']}min across {ceremony['count']} sessions")
+        lines.append(
+            f"  Total time:   {ceremony['total_minutes']}min across {ceremony['count']} sessions"
+        )
         lines.append(f"  Average:      {ceremony['avg_minutes']}min per session")
         for level, stats in ceremony.get("by_level", {}).items():
             lines.append(f"    {level:<12} {stats['count']}x, avg {stats['avg_min']}min")
@@ -215,16 +233,22 @@ def render_dashboard(days: int = 7) -> str:
 
     waste_found = False
     if signal.get("total") and sig_pct < 25:
-        lines.append(f"  {red('!')} Low signal ratio ({sig_pct}%) — most findings don't lead to action")
-        lines.append(f"    Consider: Are Module B prompts generating useful feedback?")
+        lines.append(
+            f"  {red('!')} Low signal ratio ({sig_pct}%) — most findings don't lead to action"
+        )
+        lines.append("    Consider: Are Module B prompts generating useful feedback?")
         waste_found = True
 
     if calibration.get("open", 0) > 5:
-        lines.append(f"  {yellow('!')} {calibration['open']} unresolved hypotheses — test or close them")
+        lines.append(
+            f"  {yellow('!')} {calibration['open']} unresolved hypotheses — test or close them"
+        )
         waste_found = True
 
     if ceremony.get("avg_minutes", 0) > 30:
-        lines.append(f"  {yellow('!')} High ceremony cost ({ceremony['avg_minutes']}min avg) — consider if proportional")
+        lines.append(
+            f"  {yellow('!')} High ceremony cost ({ceremony['avg_minutes']}min avg) — consider if proportional"
+        )
         waste_found = True
 
     if not waste_found:

@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 def test_classify_constitution_files():
     from scripts.classify_file import classify_file
+
     assert classify_file("CLAUDE.md") == "constitution"
     assert classify_file("FRAMEWORK.md") == "constitution"
     assert classify_file("TOYOTA_PRINCIPLES.md") == "constitution"
@@ -19,6 +20,7 @@ def test_classify_constitution_files():
 
 def test_classify_guarded_files():
     from scripts.classify_file import classify_file
+
     assert classify_file("scripts/metrics.py") == "guarded"
     assert classify_file("scripts/ceremony.py") == "guarded"
     assert classify_file("scripts/self_verify.py") == "guarded"
@@ -26,6 +28,7 @@ def test_classify_guarded_files():
 
 def test_classify_open_files():
     from scripts.classify_file import classify_file
+
     assert classify_file("tests/test_framework.py") == "open"
     assert classify_file("tests/test_metrics.py") == "open"
     assert classify_file("docs/guide.md") == "open"
@@ -33,6 +36,7 @@ def test_classify_open_files():
 
 def test_classify_unknown_defaults_guarded():
     from scripts.classify_file import classify_file
+
     # Unknown paths default to guarded (safe default)
     assert classify_file("src/core/api.py") == "guarded"
     assert classify_file("some/random/file.py") == "guarded"
@@ -40,6 +44,7 @@ def test_classify_unknown_defaults_guarded():
 
 def test_worker_allowed():
     from scripts.classify_file import is_worker_allowed
+
     assert is_worker_allowed("tests/test_foo.py") is True
     assert is_worker_allowed("scripts/metrics.py") is True  # guarded = allowed but needs review
     assert is_worker_allowed("CLAUDE.md") is False  # constitution = blocked
@@ -47,6 +52,7 @@ def test_worker_allowed():
 
 def test_classify_multiple():
     from scripts.classify_file import classify_files
+
     result = classify_files(["CLAUDE.md", "tests/test_foo.py", "src/api.py"])
     assert result["CLAUDE.md"] == "constitution"
     assert result["tests/test_foo.py"] == "open"
@@ -55,5 +61,6 @@ def test_classify_multiple():
 
 def test_rsi_directory_is_constitution():
     from scripts.classify_file import classify_file
+
     assert classify_file(".rsi/architecture.yaml") == "constitution"
     assert classify_file(".rsi/tasks/TASK-001.json") == "constitution"

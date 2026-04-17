@@ -7,14 +7,12 @@ Generates:
 3. System prompt text file (for any LLM that accepts system prompts)
 """
 
-from pathlib import Path
 from adapters.base import BaseAdapter, RSIRules, register_adapter
 from adapters.minimax import MiniMaxAdapter
 
 
 @register_adapter
 class GenericAdapter(BaseAdapter):
-
     @property
     def platform_name(self) -> str:
         return "Generic / Custom Agent"

@@ -1,12 +1,14 @@
 """Tests for the hook handlers — verifies tool-layer enforcement."""
 
 import json
-from pathlib import Path
+from datetime import UTC
 
 
 def _setup_hooks(tmp_path):
+    from datetime import datetime
+
     import scripts.hooks as h
-    from datetime import datetime, timezone
+
     h.PROJECT_ROOT = tmp_path
     h.MEMORY_ROOT = tmp_path / ".memory"
     h.STATE_FILE = tmp_path / ".memory" / ".preflight_state.json"
@@ -17,10 +19,14 @@ def _setup_hooks(tmp_path):
     (tmp_path / ".memory").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".memory" / "technical").mkdir(parents=True, exist_ok=True)
     # Create valid session so TTL check passes
-    h.SESSION_FILE.write_text(json.dumps({
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "ttl_hours": 24,
-    }))
+    h.SESSION_FILE.write_text(
+        json.dumps(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "ttl_hours": 24,
+            }
+        )
+    )
     # Clear per-invocation cache
     h._cache.clear()
     return h
@@ -47,7 +53,6 @@ def test_pre_edit_blocks_unread_file(tmp_path):
     src.parent.mkdir(parents=True, exist_ok=True)
     src.write_text("x = 1")
 
-    import sys
     try:
         h.handle_pre_edit({"file_path": str(src)})
         # If we get here on a file that exists and wasn't read, something's wrong
@@ -98,7 +103,6 @@ def test_fail_index_entries(tmp_path):
 
 def test_pre_bash_blocks_no_verify(tmp_path):
     h = _setup_hooks(tmp_path)
-    import sys
     try:
         h.handle_pre_bash({"command": "git commit --no-verify -m 'skip'"})
         assert False, "Should have blocked"

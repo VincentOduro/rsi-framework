@@ -23,7 +23,6 @@ from adversarial thinking, not mechanical pattern detection.
 
 import argparse
 import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -155,22 +154,36 @@ def review_code(files: list[str]) -> list[dict]:
                         continue
                     # Only flag if not in test files
                     if "/test" not in file and "_test.py" not in file:
-                        findings.append({
-                            "description": f"PROJECT-SPECIFIC: {_}",
-                            "file": file,
-                            "line": i,
-                            "confirmed": False,
-                            "verification": f"Found: {line.strip()[:80]}",
-                        })
+                        findings.append(
+                            {
+                                "description": f"PROJECT-SPECIFIC: {_}",
+                                "file": file,
+                                "line": i,
+                                "confirmed": False,
+                                "verification": f"Found: {line.strip()[:80]}",
+                            }
+                        )
 
         # Check for common bug patterns (framework-generic)
         bug_checks = [
-            (".data[0] without guard", "Accessing .data[0] without checking .data — IndexError if empty"),
-            ("await inside list comprehension", "await in list comprehension doesn't work — use [await f() for f in xs] or gather()"),
-            ("global without declaration", "global variable used without 'global' keyword in same function"),
+            (
+                ".data[0] without guard",
+                "Accessing .data[0] without checking .data — IndexError if empty",
+            ),
+            (
+                "await inside list comprehension",
+                "await in list comprehension doesn't work — use [await f() for f in xs] or gather()",
+            ),
+            (
+                "global without declaration",
+                "global variable used without 'global' keyword in same function",
+            ),
             ("return await in async", "return await is redundant in async — use return directly"),
             ("mutable default arg", "Mutable default argument persists across calls — use None"),
-            ("bare except:", "Bare except catches everything including SystemExit — use except Exception:"),
+            (
+                "bare except:",
+                "Bare except catches everything including SystemExit — use except Exception:",
+            ),
             ("shadowing built-in", "Variable shadows built-in name (e.g., 'id', 'type', 'list')"),
         ]
 
@@ -181,32 +194,38 @@ def review_code(files: list[str]) -> list[dict]:
                     stripped = line.strip()
                     if stripped.startswith("#"):
                         continue
-                    findings.append({
-                        "description": f"{description}",
-                        "file": file,
-                        "line": i,
-                        "confirmed": False,
-                        "verification": f"Found: {line.strip()[:80]}",
-                    })
+                    findings.append(
+                        {
+                            "description": f"{description}",
+                            "file": file,
+                            "line": i,
+                            "confirmed": False,
+                            "verification": f"Found: {line.strip()[:80]}",
+                        }
+                    )
 
         # Check for unhandled edge cases in Supabase queries
         if "execute()" in content:
             # Check for execute() without try/except
             for i, line in enumerate(lines, 1):
-                if ".execute()" in line and not any("try:" in lines[max(0, i-3):i] for _ in [1]):
+                if ".execute()" in line and not any(
+                    "try:" in lines[max(0, i - 3) : i] for _ in [1]
+                ):
                     stripped = line.strip()
                     if stripped.startswith("#") or "try:" in stripped:
                         continue
                     # Heuristic: if we're inside a try block, skip
-                    before = "\n".join(lines[max(0, i-10):i])
+                    before = "\n".join(lines[max(0, i - 10) : i])
                     if "try:" not in before:
-                        findings.append({
-                            "description": f"execute() call without visible try/except",
-                            "file": file,
-                            "line": i,
-                            "confirmed": False,
-                            "verification": f"Found: {line.strip()[:80]}",
-                        })
+                        findings.append(
+                            {
+                                "description": "execute() call without visible try/except",
+                                "file": file,
+                                "line": i,
+                                "confirmed": False,
+                                "verification": f"Found: {line.strip()[:80]}",
+                            }
+                        )
 
     return findings
 
@@ -217,7 +236,7 @@ def _prompt_for_findings(prompt: str, min_count: int, ask_pattern: bool = False)
     print("(Enter empty line when done)")
     results = []
     while True:
-        line = input(f"  > ").strip()
+        line = input("  > ").strip()
         if not line:
             break
         if len(results) >= min_count:
@@ -282,7 +301,7 @@ def interactive_review(task: str, files: list[str]) -> tuple[list[dict], list[di
         ask_pattern=True,  # Improvements often reveal reusable patterns
     )
     for m in improvements:
-        m["applies_to"] = input(f"  Applies to (file/component): ").strip()
+        m["applies_to"] = input("  Applies to (file/component): ").strip()
 
     return findings, optimizations, improvements
 
@@ -320,7 +339,7 @@ def main():
         print(f"{green('Added follow-up tasks to current-task.md')}")
 
     print(f"\n{green('Self-feedback complete.')}")
-    print(f"  python3 scripts/self_optimization.py")
+    print("  python3 scripts/self_optimization.py")
 
 
 if __name__ == "__main__":

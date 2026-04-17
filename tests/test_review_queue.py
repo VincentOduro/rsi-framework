@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
 def _setup_queue(tmp_path):
     """Set up review queue with tmp directories."""
     import scripts.review_queue as rq
+
     rq.REVIEWS_DIR = tmp_path / "reviews"
     rq.PENDING_DIR = rq.REVIEWS_DIR / "pending"
     rq.ACCEPTED_DIR = rq.REVIEWS_DIR / "accepted"
@@ -62,7 +63,9 @@ def test_gate_clear_when_empty(tmp_path):
 
 def test_accept_moves_file(tmp_path):
     rq = _setup_queue(tmp_path)
-    _add_pending(rq, "TASK-010", "# Review: TASK-010\n**Task:** Stuff\n**Status:** PENDING REVIEW\n")
+    _add_pending(
+        rq, "TASK-010", "# Review: TASK-010\n**Task:** Stuff\n**Status:** PENDING REVIEW\n"
+    )
 
     class FakeArgs:
         task_id = "TASK-010"

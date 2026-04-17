@@ -18,8 +18,8 @@ import argparse
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 STATE_FILE = PROJECT_ROOT / ".memory" / ".preflight_state.json"
@@ -49,12 +49,13 @@ def _is_session_expired() -> bool:
         return True
     try:
         import json
+
         data = json.loads(SESSION_FILE.read_text())
         last_session = datetime.fromisoformat(data["timestamp"])
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         age = now - last_session
         return age > timedelta(hours=RSI_SESSION_TTL_HOURS)
-    except (json.JSONDecodeError, IOError, KeyError, ValueError):
+    except (OSError, json.JSONDecodeError, KeyError, ValueError):
         return True
 
 
@@ -62,22 +63,27 @@ def _touch_session() -> None:
     """Update session timestamp."""
     SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
     import json
-    SESSION_FILE.write_text(json.dumps({
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "ttl_hours": RSI_SESSION_TTL_HOURS,
-    }))
+
+    SESSION_FILE.write_text(
+        json.dumps(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "ttl_hours": RSI_SESSION_TTL_HOURS,
+            }
+        )
+    )
 
 
 def _load_state(*, fresh: bool = False) -> dict:
     """Load preflight state from file.
-    
+
     Auto-seeds from git-tracked files if state is empty (no prior session).
     This ensures CI only flags genuinely NEW files (not in git history),
     not pre-existing tracked files that weren't explicitly recorded as read.
-    
+
     If session has expired (older than RSI_SESSION_TTL_HOURS, default 24h),
     the session is treated as fresh — read_files are cleared and re-seeded.
-    
+
     Use --fresh (fresh=True) to skip auto-seeding entirely and require all
     files to be explicitly recorded. This provides stricter enforcement for
     projects that want it.
@@ -87,7 +93,13 @@ def _load_state(*, fresh: bool = False) -> dict:
         return {
             "read_files": set(),
             "edited_files": set(),
-            "sessions": [{"time": datetime.now().strftime("%Y-%m-%d-%H%M"), "action": "fresh_session", "files": []}],
+            "sessions": [
+                {
+                    "time": datetime.now().strftime("%Y-%m-%d-%H%M"),
+                    "action": "fresh_session",
+                    "files": [],
+                }
+            ],
             "seeded_from": None,
             "session_fresh": True,
         }
@@ -99,24 +111,41 @@ def _load_state(*, fresh: bool = False) -> dict:
         return {
             "read_files": tracked,
             "edited_files": set(),
-            "sessions": [{"time": datetime.now().strftime("%Y-%m-%d-%H%M"), "action": "session_expired", "files": []}],
+            "sessions": [
+                {
+                    "time": datetime.now().strftime("%Y-%m-%d-%H%M"),
+                    "action": "session_expired",
+                    "files": [],
+                }
+            ],
             "seeded_from": "git-ls-files",
             "session_fresh": True,
         }
 
     if not STATE_FILE.exists():
         tracked = get_git_tracked_files()
-        seeded = {"read_files": tracked, "edited_files": set(), "sessions": [], "seeded_from": "git-ls-files"}
+        seeded = {
+            "read_files": tracked,
+            "edited_files": set(),
+            "sessions": [],
+            "seeded_from": "git-ls-files",
+        }
         return seeded
     try:
         import json
+
         data = json.loads(STATE_FILE.read_text())
         data["read_files"] = set(data.get("read_files", []))
         data["edited_files"] = set(data.get("edited_files", []))
         return data
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         tracked = get_git_tracked_files()
-        seeded = {"read_files": tracked, "edited_files": set(), "sessions": [], "seeded_from": "git-ls-files"}
+        seeded = {
+            "read_files": tracked,
+            "edited_files": set(),
+            "sessions": [],
+            "seeded_from": "git-ls-files",
+        }
         return seeded
 
 
@@ -125,6 +154,7 @@ def _save_state(state: dict) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     _touch_session()
     import json
+
     data = {k: list(v) if isinstance(v, set) else v for k, v in state.items()}
     STATE_FILE.write_text(json.dumps(data, indent=2))
 
@@ -170,11 +200,13 @@ def cmd_record(files: list[str], *, fresh: bool = False) -> None:
     """Record that files were read (simulates "read in this session")."""
     state = _load_state(fresh=fresh)
     session_id = datetime.now().strftime("%Y-%m-%d-%H%M")
-    state["sessions"].append({
-        "time": session_id,
-        "action": "read",
-        "files": files,
-    })
+    state["sessions"].append(
+        {
+            "time": session_id,
+            "action": "read",
+            "files": files,
+        }
+    )
     for f in files:
         state["read_files"].add(f)
     _save_state(state)
@@ -189,9 +221,9 @@ def cmd_report(*, fresh: bool = False) -> None:
     read = state["read_files"]
     tracked = get_git_tracked_files()
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("PRE-FLIGHT REPORT")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Edited files
     print(f"Edited since last commit ({len(edited)}):")
@@ -224,7 +256,7 @@ def cmd_report(*, fresh: bool = False) -> None:
         if len(src_files) > 10:
             print(f"    ... and {len(src_files) - 10} more")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
 
 
 def cmd_check(args, *, fresh: bool = False) -> None:
@@ -238,9 +270,9 @@ def cmd_check(args, *, fresh: bool = False) -> None:
         print(f"{green('No source files edited — pre-flight clear.')}")
         return
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("PRE-FLIGHT CHECK")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     problems = []
     for f in sorted(edited):
@@ -255,25 +287,25 @@ def cmd_check(args, *, fresh: bool = False) -> None:
         else:
             print(f"  {green('OK:')} {f}")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
 
     if problems:
         if args.ci:
             print(f"\n{red('PRE-FLIGHT FAILED — blocking in CI mode')}")
-            print(f"Edit the following files without reading them:")
+            print("Edit the following files without reading them:")
             for f in problems:
                 print(f"  - {f}")
-            print(f"\nTo record reading:")
-            print(f"  python3 scripts/preflight_check.py --record FILE")
+            print("\nTo record reading:")
+            print("  python3 scripts/preflight_check.py --record FILE")
             sys.exit(1)
         else:
             print(f"\n{yellow('WARNING:')} {len(problems)} file(s) edited without being read.")
-            print(f"This is a developer discipline check, not a blocking gate.")
-            print(f"\nTo record reading:")
-            print(f"  python3 scripts/preflight_check.py --record <file1> <file2> ...")
-            print(f"\nTo bypass this check (not recommended):")
-            print(f"  git commit --no-verify")
-            print(f"\nTo make this check blocking, use --ci flag.")
+            print("This is a developer discipline check, not a blocking gate.")
+            print("\nTo record reading:")
+            print("  python3 scripts/preflight_check.py --record <file1> <file2> ...")
+            print("\nTo bypass this check (not recommended):")
+            print("  git commit --no-verify")
+            print("\nTo make this check blocking, use --ci flag.")
             sys.exit(0)  # Warning only, not blocking in non-CI mode
     else:
         print(f"\n{green('PRE-FLIGHT CLEAR — all edited files were read.')}")
@@ -284,9 +316,11 @@ def cmd_require_session() -> None:
     """Block if no active session marker exists or session has expired."""
     if _is_session_expired():
         print(f"{red('x No active RSI session — commit blocked')}")
-        print(f"")
-        print(f"Run 'python3 scripts/preflight_check.py --start' to start a session.")
-        print(f"Session markers expire after {RSI_SESSION_TTL_HOURS}h (configurable via RSI_SESSION_TTL_HOURS env var).")
+        print("")
+        print("Run 'python3 scripts/preflight_check.py --start' to start a session.")
+        print(
+            f"Session markers expire after {RSI_SESSION_TTL_HOURS}h (configurable via RSI_SESSION_TTL_HOURS env var)."
+        )
         sys.exit(1)
     print(f"{green('+ RSI session active')}")
     sys.exit(0)
@@ -296,17 +330,21 @@ def cmd_start() -> None:
     """Start a new RSI session. Creates or refreshes the session marker."""
     _touch_session()
     print(f"{green('+ RSI session started')}")
-    print(f"Session expires in {RSI_SESSION_TTL_HOURS}h (configurable via RSI_SESSION_TTL_HOURS env var).")
+    print(
+        f"Session expires in {RSI_SESSION_TTL_HOURS}h (configurable via RSI_SESSION_TTL_HOURS env var)."
+    )
 
 
 def cmd_reset() -> None:
     """Reset pre-flight state for a fresh session."""
     state = _load_state()
-    state["sessions"].append({
-        "time": datetime.now().strftime("%Y-%m-%d-%H%M"),
-        "action": "reset",
-        "files": [],
-    })
+    state["sessions"].append(
+        {
+            "time": datetime.now().strftime("%Y-%m-%d-%H%M"),
+            "action": "reset",
+            "files": [],
+        }
+    )
     state["read_files"] = set()
     _save_state(state)
     print(f"{green('Pre-flight state reset.')}")
@@ -315,23 +353,42 @@ def cmd_reset() -> None:
 def main():
     parser = argparse.ArgumentParser(
         description="Pre-flight check — verify files were read before editing. "
-                    f"Session expires after {RSI_SESSION_TTL_HOURS}h (configurable via RSI_SESSION_TTL_HOURS env var)."
+        f"Session expires after {RSI_SESSION_TTL_HOURS}h (configurable via RSI_SESSION_TTL_HOURS env var)."
     )
-    parser.add_argument("--check-edited", action="store_true", help="Check if edited files were read (non-blocking)")
-    parser.add_argument("--ci", action="store_true", help="Blocking CI mode (fails if unwatched files edited)")
+    parser.add_argument(
+        "--check-edited", action="store_true", help="Check if edited files were read (non-blocking)"
+    )
+    parser.add_argument(
+        "--ci", action="store_true", help="Blocking CI mode (fails if unwatched files edited)"
+    )
     parser.add_argument("--record", nargs="+", help="Record that FILE was read")
     parser.add_argument("--report", action="store_true", help="Show read vs edited status")
-    parser.add_argument("--reset", action="store_true", help="Reset pre-flight state for fresh session")
-    parser.add_argument("--require-session", action="store_true",
-                        help="Block if no active session marker exists or session has expired. "
-                             "Use as pre-commit Stage 0 to enforce session start.")
-    parser.add_argument("--start", action="store_true",
-                        help="Start a new RSI session (creates or refreshes session marker).")
-    parser.add_argument("--fresh", action="store_true",
-                        help="Skip auto-seeding from git-tracked files. All files must be explicitly recorded. "
-                             "Useful for strict enforcement on new projects or after project restructuring.")
-    parser.add_argument("--ttl", type=int, default=RSI_SESSION_TTL_HOURS,
-                        help=f"Session TTL in hours (default: {RSI_SESSION_TTL_HOURS}, via RSI_SESSION_TTL_HOURS env var)")
+    parser.add_argument(
+        "--reset", action="store_true", help="Reset pre-flight state for fresh session"
+    )
+    parser.add_argument(
+        "--require-session",
+        action="store_true",
+        help="Block if no active session marker exists or session has expired. "
+        "Use as pre-commit Stage 0 to enforce session start.",
+    )
+    parser.add_argument(
+        "--start",
+        action="store_true",
+        help="Start a new RSI session (creates or refreshes session marker).",
+    )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Skip auto-seeding from git-tracked files. All files must be explicitly recorded. "
+        "Useful for strict enforcement on new projects or after project restructuring.",
+    )
+    parser.add_argument(
+        "--ttl",
+        type=int,
+        default=RSI_SESSION_TTL_HOURS,
+        help=f"Session TTL in hours (default: {RSI_SESSION_TTL_HOURS}, via RSI_SESSION_TTL_HOURS env var)",
+    )
 
     args = parser.parse_args()
 

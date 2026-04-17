@@ -5,12 +5,11 @@ Full tool enforcement via RSISession wrapped tools.
 Works with GPT-4, GPT-4o, o1, o3, or any model via the OpenAI API.
 """
 
-from adapters.base import BaseAdapter, RSIRules, register_adapter
+from adapters.base import BaseAdapter, register_adapter
 
 
 @register_adapter
 class OpenAIAgentsAdapter(BaseAdapter):
-
     @property
     def platform_name(self) -> str:
         return "OpenAI Agents SDK"

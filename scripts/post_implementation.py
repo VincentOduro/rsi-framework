@@ -54,7 +54,7 @@ def _create_default_tracker(path: Path) -> None:
     """Create a new task tracker file from template."""
     content = f"""# Current Task Tracker
 
-**Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
+**Updated:** {datetime.now().strftime("%Y-%m-%d %H:%M")}
 
 ## Active Tasks
 
@@ -396,7 +396,9 @@ def main():
     # Validate proof_wrong
     if not data["proof_wrong"]:
         print(f"\n{red('--proof-wrong is REQUIRED for non-interactive capture.')}")
-        print(f"Example: --proof-wrong 'If Supabase returns empty data on successful INSERT, safe_first_or_raise would raise instead of returning the id'")
+        print(
+            "Example: --proof-wrong 'If Supabase returns empty data on successful INSERT, safe_first_or_raise would raise instead of returning the id'"
+        )
         sys.exit(1)
 
     # Update round log
@@ -416,15 +418,12 @@ def main():
 
     # Chain to Module B and C — always mandatory
     import importlib
+
     feedback = importlib.import_module("scripts.self_feedback")
     print(f"\n{yellow('Running Module B: Self-Feedback...')}")
     print("=" * 60)
-    findings, optimizations, improvements = feedback.interactive_review(
-        data["task"], data["files"]
-    )
-    feedback.log_feedback_to_file(
-        data["task"], findings, optimizations, improvements
-    )
+    findings, optimizations, improvements = feedback.interactive_review(data["task"], data["files"])
+    feedback.log_feedback_to_file(data["task"], findings, optimizations, improvements)
     print(f"\n{green('Self-feedback complete.')}")
 
     print(f"\n{yellow('Running Module C: Self-Optimization...')}")

@@ -16,8 +16,7 @@ Usage:
 
 import argparse
 import json
-import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -162,7 +161,7 @@ def _metrics_snapshot() -> list[str]:
 
 def generate_brief() -> str:
     """Generate the full session brief."""
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
     hypotheses = _open_hypotheses()
     reviews = _pending_reviews()

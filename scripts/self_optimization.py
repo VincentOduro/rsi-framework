@@ -13,8 +13,6 @@ Usage:
 """
 
 import argparse
-import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -136,6 +134,7 @@ def get_pending_tasks() -> list[dict]:
 def _extract_priority_from_name(name: str) -> tuple[str, str]:
     """Extract priority prefix from task name. Returns (priority, cleaned_name)."""
     import re
+
     m = re.match(r"^\[((?:CRITICAL|HIGH|MEDIUM|LOW|UNKNOWN))\]\s*(.*)$", name, re.IGNORECASE)
     if m:
         return m.group(1).upper(), m.group(2)
@@ -148,23 +147,27 @@ def prioritize_fixes(feedback_entries: list[dict], pending_tasks: list[dict]) ->
 
     for entry in feedback_entries:
         for review in entry.get("reviews", []):
-            issues.append({
-                "source": f"feedback: {entry['task']}",
-                "description": review.get("description", ""),
-                "confirmed": review.get("confirmed", False),
-                "priority": "HIGH" if review.get("confirmed") else "MEDIUM",
-            })
+            issues.append(
+                {
+                    "source": f"feedback: {entry['task']}",
+                    "description": review.get("description", ""),
+                    "confirmed": review.get("confirmed", False),
+                    "priority": "HIGH" if review.get("confirmed") else "MEDIUM",
+                }
+            )
 
     for task in pending_tasks:
         name = task["name"]
         priority, cleaned = _extract_priority_from_name(name)
-        issues.append({
-            "source": "current-task",
-            "description": cleaned if cleaned != name else task["name"],
-            "notes": task.get("notes", ""),
-            "confirmed": False,
-            "priority": priority,
-        })
+        issues.append(
+            {
+                "source": "current-task",
+                "description": cleaned if cleaned != name else task["name"],
+                "notes": task.get("notes", ""),
+                "confirmed": False,
+                "priority": priority,
+            }
+        )
 
     # Sort by priority weight (descending)
     issues.sort(key=lambda x: PRIORITY_WEIGHTS.get(x["priority"], 0), reverse=True)
@@ -194,8 +197,16 @@ def suggest_next_round(prioritized: list[dict]) -> list[str]:
 def _detect_pattern(description: str, files: list[str]) -> bool:
     """Heuristic: does this finding describe a reusable pattern?"""
     pattern_indicators = [
-        "helper function", "extract", "reuse", "repeated", "same pattern",
-        "duplicated", "refactor", "extract into", "DRY", "wrapper",
+        "helper function",
+        "extract",
+        "reuse",
+        "repeated",
+        "same pattern",
+        "duplicated",
+        "refactor",
+        "extract into",
+        "DRY",
+        "wrapper",
     ]
     return any(ind in description.lower() for ind in pattern_indicators)
 
@@ -247,9 +258,7 @@ def prompt_for_patterns(feedback_entries: list[dict]) -> None:
         # Fallback: also check reviews with heuristic
         for review in entry.get("reviews", []):
             desc = review.get("description", "")
-            if _detect_pattern(desc, []) and not any(
-                desc == pd[1] for pd in pattern_findings
-            ):
+            if _detect_pattern(desc, []) and not any(desc == pd[1] for pd in pattern_findings):
                 pattern_findings.append((entry["task"], desc, None))
 
     if not pattern_findings:
@@ -268,7 +277,7 @@ def prompt_for_patterns(feedback_entries: list[dict]) -> None:
     for i, (task, desc, orig) in enumerate(pattern_findings, 1):
         print(f"\n--- Pattern {i} ---")
         name = input(f"Pattern name [{desc[:30]}...]: ").strip() or f"pattern-{i}"
-        ctx = input(f"Context (when to use): ").strip()
+        ctx = input("Context (when to use): ").strip()
         code = input("Code example (paste, Enter for placeholder): ").strip()
         if not code:
             code = "# TODO: add code example"
@@ -302,7 +311,7 @@ def write_priorities_to_tracker(prioritized: list[dict], actions: list[str]) -> 
         status = "CONFIRMED" if issue.get("confirmed") else "review"
         header += f"| {issue['priority']} | {issue['description'][:50]} | {issue['source']} | {status} |\n"
 
-    header += f"\n### Suggested Next Round Actions\n"
+    header += "\n### Suggested Next Round Actions\n"
     for action in actions:
         header += f"- {action}\n"
 
@@ -350,7 +359,7 @@ def main():
     prompt_for_patterns(feedback_entries)
 
     print(f"\n{green('Self-optimization complete.')}")
-    print(f"  Updated: current-task.md (priorities), patterns.md (if applicable)")
+    print("  Updated: current-task.md (priorities), patterns.md (if applicable)")
 
 
 if __name__ == "__main__":

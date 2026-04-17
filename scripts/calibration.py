@@ -19,7 +19,7 @@ import argparse
 import json
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -32,7 +32,7 @@ def _ensure_dir() -> None:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _load_all() -> list[dict]:
@@ -107,22 +107,41 @@ def validate_hypothesis(text: str) -> dict:
         score -= 30
 
     # Check for specificity markers (good signs)
-    specificity_markers = ["if ", "when ", "because ", "would ", "could cause ", "returns ", "throws "]
+    specificity_markers = [
+        "if ",
+        "when ",
+        "because ",
+        "would ",
+        "could cause ",
+        "returns ",
+        "throws ",
+    ]
     has_conditional = any(marker in lower for marker in specificity_markers)
     if not has_conditional:
         issues.append("No conditional — good hypotheses use 'if X then Y' structure")
         score -= 20
 
     # Check for testability markers
-    testability_markers = ["test", "verify", "check", "assert", "returns", "raises", "throws", "output", "result"]
+    testability_markers = [
+        "test",
+        "verify",
+        "check",
+        "assert",
+        "returns",
+        "raises",
+        "throws",
+        "output",
+        "result",
+    ]
     has_testable = any(marker in lower for marker in testability_markers)
     if not has_testable:
         issues.append("May not be testable — consider how you'd verify this")
         score -= 10
 
     # Check for file/function references (very specific = good)
-    has_reference = bool(re.search(r"[a-zA-Z_]+\.(py|js|ts|go|rs|java|rb)", text)) or \
-                    bool(re.search(r"[a-zA-Z_]+\(\)", text))
+    has_reference = bool(re.search(r"[a-zA-Z_]+\.(py|js|ts|go|rs|java|rb)", text)) or bool(
+        re.search(r"[a-zA-Z_]+\(\)", text)
+    )
     if has_reference:
         score = min(100, score + 10)
 
@@ -133,6 +152,7 @@ def validate_hypothesis(text: str) -> dict:
 # ---------------------------------------------------------------------------
 # CRUD operations
 # ---------------------------------------------------------------------------
+
 
 def add_hypothesis(
     hypothesis: str,
@@ -195,6 +215,7 @@ def list_all() -> list[dict]:
 # Calibration score
 # ---------------------------------------------------------------------------
 
+
 def calibration_score() -> dict:
     """Compute overall calibration metrics.
     Returns {total, open, confirmed, disproven, untestable, accuracy_pct,
@@ -230,16 +251,21 @@ def calibration_score() -> dict:
 # CLI
 # ---------------------------------------------------------------------------
 
-def main():
-    from scripts.colors import green, red, yellow, cyan, bar
 
-    parser = argparse.ArgumentParser(description="RSI Calibration Tracker — proof-wrong hypothesis accuracy")
+def main():
+    from scripts.colors import cyan, green, red, yellow
+
+    parser = argparse.ArgumentParser(
+        description="RSI Calibration Tracker — proof-wrong hypothesis accuracy"
+    )
     sub = parser.add_subparsers(dest="cmd")
 
     add_p = sub.add_parser("add", help="Add a hypothesis")
     add_p.add_argument("hypothesis", help="The proof-wrong hypothesis text")
     add_p.add_argument("--task", default="")
-    add_p.add_argument("--severity", default="MEDIUM", choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"])
+    add_p.add_argument(
+        "--severity", default="MEDIUM", choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+    )
     add_p.add_argument("--test-method", default="")
     add_p.add_argument("--files", nargs="*")
 
@@ -295,7 +321,9 @@ def main():
         print(f"\n{len(hyps)} hypothesis(es):\n")
         for h in hyps:
             status = h.get("status", "open")
-            color = {"open": cyan, "confirmed": red, "disproven": green, "untestable": yellow}.get(status, str)
+            color = {"open": cyan, "confirmed": red, "disproven": green, "untestable": yellow}.get(
+                status, str
+            )
             status_str = status.upper().ljust(12)
             print(f"  {h['id']}  {color(status_str)}  {h['hypothesis'][:50]}")
 
@@ -310,11 +338,11 @@ def main():
         print(f"  Disproven:         {s['disproven']}")
         print(f"  Untestable:        {s['untestable']}")
         print(f"  Resolved:          {s['resolved']}")
-        if s['resolved']:
-            acc_color = red if s['accuracy_pct'] > 50 else green
-            acc_str = str(s['accuracy_pct']) + "%"
+        if s["resolved"]:
+            acc_color = red if s["accuracy_pct"] > 50 else green
+            acc_str = str(s["accuracy_pct"]) + "%"
             print(f"\n  Prediction accuracy: {acc_color(acc_str)}")
-            print(f"  (Lower is better — it means your code is usually right)")
+            print("  (Lower is better — it means your code is usually right)")
         print(f"  Avg quality score:   {s['avg_quality_score']}/100")
 
     elif args.cmd == "validate":

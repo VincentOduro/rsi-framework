@@ -1,6 +1,5 @@
 """Tests for Phases 0-3: bug fixes, quality ratchet, session brief, parallel delegation."""
 
-import json
 import sys
 from pathlib import Path
 
@@ -13,8 +12,10 @@ if str(PROJECT_ROOT) not in sys.path:
 # Phase 0a: Result storage (no double API call)
 # ---------------------------------------------------------------------------
 
+
 def test_save_and_load_result(tmp_path):
     import scripts.delegate as d
+
     d.RESULTS_DIR = tmp_path / "results"
     d.RESULTS_DIR.mkdir()
 
@@ -29,6 +30,7 @@ def test_save_and_load_result(tmp_path):
 
 def test_load_result_nonexistent(tmp_path):
     import scripts.delegate as d
+
     d.RESULTS_DIR = tmp_path / "results"
     d.RESULTS_DIR.mkdir()
 
@@ -37,6 +39,7 @@ def test_load_result_nonexistent(tmp_path):
 
 def test_write_review_stores_result(tmp_path):
     import scripts.delegate as d
+
     d.PENDING_DIR = tmp_path / "pending"
     d.RESULTS_DIR = tmp_path / "results"
     d.REVIEWS_DIR = tmp_path
@@ -59,8 +62,10 @@ def test_write_review_stores_result(tmp_path):
 # Phase 0b: File size validation
 # ---------------------------------------------------------------------------
 
+
 def test_validate_large_file_warning(tmp_path):
     import scripts.delegate as d
+
     old_root = d.PROJECT_ROOT
     d.PROJECT_ROOT = tmp_path
 
@@ -86,15 +91,19 @@ def test_validate_large_file_warning(tmp_path):
 # Phase 0c: self_verify relative import handling
 # ---------------------------------------------------------------------------
 
+
 def test_python_checker_sanity_handles_import_error():
     """PythonChecker.check_sanity should not fail on relative import errors."""
     import tempfile
+
     from scripts.self_verify import PythonChecker
 
     checker = PythonChecker()
 
     # Create a file that uses a relative import (will fail to import standalone)
-    with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False, dir=str(PROJECT_ROOT)) as f:
+    with tempfile.NamedTemporaryFile(
+        suffix=".py", mode="w", delete=False, dir=str(PROJECT_ROOT)
+    ) as f:
         f.write("from .nonexistent_sibling import something\nx = 1\n")
         f.flush()
         temp_path = Path(f.name)
@@ -111,8 +120,10 @@ def test_python_checker_sanity_handles_import_error():
 # Phase 2: Session brief
 # ---------------------------------------------------------------------------
 
+
 def test_session_brief_generates():
     from scripts.session_brief import generate_brief
+
     brief = generate_brief()
     assert "SESSION BRIEF" in brief
     assert "=" in brief
@@ -120,6 +131,7 @@ def test_session_brief_generates():
 
 def test_session_brief_handles_empty_memory(tmp_path):
     import scripts.session_brief as sb
+
     old_root = sb.MEMORY_ROOT
     sb.MEMORY_ROOT = tmp_path / ".memory"
     sb.MEMORY_ROOT.mkdir()
@@ -136,8 +148,10 @@ def test_session_brief_handles_empty_memory(tmp_path):
 # Phase 3: Parallel delegation grouping
 # ---------------------------------------------------------------------------
 
+
 def test_group_by_file_overlap_independent():
     from scripts.delegate import _group_by_file_overlap
+
     tasks = [
         {"id": "T1", "files_to_modify": ["a.py"]},
         {"id": "T2", "files_to_modify": ["b.py"]},
@@ -150,6 +164,7 @@ def test_group_by_file_overlap_independent():
 
 def test_group_by_file_overlap_shared():
     from scripts.delegate import _group_by_file_overlap
+
     tasks = [
         {"id": "T1", "files_to_modify": ["a.py", "shared.py"]},
         {"id": "T2", "files_to_modify": ["shared.py", "b.py"]},
@@ -162,6 +177,7 @@ def test_group_by_file_overlap_shared():
 
 def test_group_by_file_overlap_all_overlap():
     from scripts.delegate import _group_by_file_overlap
+
     tasks = [
         {"id": "T1", "files_to_modify": ["common.py"]},
         {"id": "T2", "files_to_modify": ["common.py"]},
@@ -175,11 +191,13 @@ def test_group_by_file_overlap_all_overlap():
 
 def test_group_by_file_overlap_empty():
     from scripts.delegate import _group_by_file_overlap
+
     assert _group_by_file_overlap([]) == []
 
 
 def test_parse_file_spec_plain():
     from scripts.delegate import _parse_file_spec
+
     path, start, end = _parse_file_spec("src/main.py")
     assert path == "src/main.py"
     assert start is None
@@ -188,6 +206,7 @@ def test_parse_file_spec_plain():
 
 def test_parse_file_spec_range():
     from scripts.delegate import _parse_file_spec
+
     path, start, end = _parse_file_spec("src/main.py:100-200")
     assert path == "src/main.py"
     assert start == 100
@@ -196,6 +215,7 @@ def test_parse_file_spec_range():
 
 def test_parse_file_spec_start_only():
     from scripts.delegate import _parse_file_spec
+
     path, start, end = _parse_file_spec("src/main.py:50")
     assert path == "src/main.py"
     assert start == 50

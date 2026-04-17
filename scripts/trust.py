@@ -87,8 +87,12 @@ def _infer_task_type(event: dict) -> str:
 
     # Check common prefixes
     prefixes = {
-        "TEST": "test", "AUDIT": "audit", "FIX": "fix",
-        "IMPL": "implement", "REFACTOR": "refactor", "DOC": "docs",
+        "TEST": "test",
+        "AUDIT": "audit",
+        "FIX": "fix",
+        "IMPL": "implement",
+        "REFACTOR": "refactor",
+        "DOC": "docs",
     }
     for prefix, task_type in prefixes.items():
         if task_id.upper().startswith(prefix):
@@ -100,7 +104,7 @@ def _infer_task_type(event: dict) -> str:
         try:
             spec = json.loads(task_file.read_text())
             return spec.get("type", "unknown")
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             pass
 
     return "unknown"
@@ -109,6 +113,7 @@ def _infer_task_type(event: dict) -> str:
 # ---------------------------------------------------------------------------
 # Trust computation
 # ---------------------------------------------------------------------------
+
 
 def compute_trust(task_type: str | None = None) -> dict:
     """Compute worker trust score from delegation history.
@@ -204,6 +209,7 @@ def should_auto_accept(task_type: str) -> tuple[bool, str]:
 
     # Spot check — random review even for trusted task types
     import random
+
     if random.random() < spot_rate:
         return False, f"Spot check (random {spot_rate:.0%} review rate)"
 
@@ -213,6 +219,7 @@ def should_auto_accept(task_type: str) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def main():
     parser = argparse.ArgumentParser(description="RSI Worker Trust Scoring")
@@ -236,10 +243,10 @@ def main():
             print(json.dumps(trust, indent=2))
         else:
             overall = trust["overall"]
-            print(f"\nWorker Trust Score")
+            print("\nWorker Trust Score")
             print(f"{'=' * 40}")
             print(f"  Overall: {overall['score']:.1%} ({overall['accepted']}/{overall['total']})")
-            print(f"\n  By Type:")
+            print("\n  By Type:")
             for t, data in sorted(trust["by_type"].items()):
                 print(f"    {t:<15} {data['score']:.1%} ({data['accepted']}/{data['total']})")
 
@@ -253,7 +260,7 @@ def main():
 
     elif args.cmd == "config":
         config = _load_trust_config()
-        print(f"\nTrust Configuration")
+        print("\nTrust Configuration")
         print(f"{'=' * 40}")
         for k, v in config.items():
             print(f"  {k}: {v}")

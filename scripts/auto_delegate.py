@@ -27,10 +27,9 @@ Environment:
 import argparse
 import json
 import os
-import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -65,15 +64,19 @@ def _get_anthropic_client():
 # Project context gathering
 # ---------------------------------------------------------------------------
 
+
 def _gather_project_context() -> str:
     """Gather project structure and known failure modes for the overlord."""
     parts = []
 
     # File tree (first 2 levels, no .git)
     import subprocess
+
     tree = subprocess.run(
-        ["git", "ls-files"], cwd=PROJECT_ROOT,
-        capture_output=True, text=True,
+        ["git", "ls-files"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
     )
     if tree.returncode == 0:
         files = tree.stdout.strip().split("\n")
@@ -97,7 +100,9 @@ def _gather_project_context() -> str:
     arch_file = PROJECT_ROOT / ".rsi" / "architecture.yaml"
     if arch_file.exists():
         parts.append("\nFILE SENSITIVITY (from .rsi/architecture.yaml):")
-        parts.append("  constitution: CLAUDE.md, FRAMEWORK.md, .rsi/**, scripts/hooks.py, scripts/delegate.py")
+        parts.append(
+            "  constitution: CLAUDE.md, FRAMEWORK.md, .rsi/**, scripts/hooks.py, scripts/delegate.py"
+        )
         parts.append("  guarded: scripts/*.py, adapters/**")
         parts.append("  open: tests/**, docs/**, *.md (non-constitution)")
         parts.append("  Worker CANNOT modify constitution files.")
@@ -172,19 +177,22 @@ def decompose_task(task_description: str, project_context: str) -> dict:
     response = client.messages.create(
         model=OVERLORD_MODEL,
         max_tokens=4096,
-        messages=[{
-            "role": "user",
-            "content": DECOMPOSE_PROMPT.format(
-                task_description=task_description,
-                project_context=project_context,
-            ),
-        }],
+        messages=[
+            {
+                "role": "user",
+                "content": DECOMPOSE_PROMPT.format(
+                    task_description=task_description,
+                    project_context=project_context,
+                ),
+            }
+        ],
     )
 
     raw = response.content[0].text
 
     # Robust JSON extraction
     from scripts.delegate import _extract_json
+
     parsed = _extract_json(raw)
     if parsed is not None and "subtasks" in parsed:
         return parsed
@@ -193,17 +201,19 @@ def decompose_task(task_description: str, project_context: str) -> dict:
     if True:
         return {
             "plan": "Could not decompose — treating as single overlord task",
-            "subtasks": [{
-                "id": "ST-001",
-                "routing": "overlord_only",
-                "type": "review",
-                "description": task_description,
-                "instruction": task_description,
-                "files_to_read": [],
-                "files_to_modify": [],
-                "acceptance_criteria": ["Task completed"],
-                "proof_wrong": "Unable to decompose automatically",
-            }],
+            "subtasks": [
+                {
+                    "id": "ST-001",
+                    "routing": "overlord_only",
+                    "type": "review",
+                    "description": task_description,
+                    "instruction": task_description,
+                    "files_to_read": [],
+                    "files_to_modify": [],
+                    "acceptance_criteria": ["Task completed"],
+                    "proof_wrong": "Unable to decompose automatically",
+                }
+            ],
         }
 
 
@@ -252,19 +262,22 @@ def review_worker_output(subtask: dict, result: dict) -> dict:
     response = client.messages.create(
         model=OVERLORD_MODEL,
         max_tokens=1024,
-        messages=[{
-            "role": "user",
-            "content": REVIEW_PROMPT.format(
-                description=subtask["description"],
-                criteria=criteria,
-                worker_output=worker_output,
-                proof_wrong=result.get("proof_wrong", "(none)"),
-            ),
-        }],
+        messages=[
+            {
+                "role": "user",
+                "content": REVIEW_PROMPT.format(
+                    description=subtask["description"],
+                    criteria=criteria,
+                    worker_output=worker_output,
+                    proof_wrong=result.get("proof_wrong", "(none)"),
+                ),
+            }
+        ],
     )
 
     raw = response.content[0].text
     from scripts.delegate import _extract_json
+
     parsed = _extract_json(raw)
     if parsed is not None and "decision" in parsed:
         return parsed
@@ -310,18 +323,21 @@ def execute_overlord_task(subtask: dict) -> dict:
     response = client.messages.create(
         model=OVERLORD_MODEL,
         max_tokens=4096,
-        messages=[{
-            "role": "user",
-            "content": OVERLORD_EXECUTE_PROMPT.format(
-                description=subtask["description"],
-                instruction=subtask.get("instruction", subtask["description"]),
-                file_contents=fc_text or "(no files requested)",
-            ),
-        }],
+        messages=[
+            {
+                "role": "user",
+                "content": OVERLORD_EXECUTE_PROMPT.format(
+                    description=subtask["description"],
+                    instruction=subtask.get("instruction", subtask["description"]),
+                    file_contents=fc_text or "(no files requested)",
+                ),
+            }
+        ],
     )
 
     raw = response.content[0].text
     from scripts.delegate import _extract_json
+
     parsed = _extract_json(raw)
     if parsed is not None:
         return parsed
@@ -331,6 +347,7 @@ def execute_overlord_task(subtask: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Core loop: decompose -> route -> execute -> review -> consolidate
 # ---------------------------------------------------------------------------
+
 
 def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: bool = True) -> dict:
     """Full automated orchestrator-worker loop.
@@ -343,8 +360,12 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
     4. Record metrics
     5. Return consolidated results
     """
-    from scripts.delegate import call_worker, validate_task, apply_changes, write_review, log_delegation
     from scripts.classify_file import classify_file
+    from scripts.delegate import (
+        call_worker,
+        log_delegation,
+        write_review,
+    )
 
     start_time = time.time()
 
@@ -357,11 +378,11 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
     log(f"{'=' * 60}")
 
     # Step 1: Gather context
-    log(f"\n[1] Gathering project context...")
+    log("\n[1] Gathering project context...")
     context = _gather_project_context()
 
     # Step 2: Decompose
-    log(f"[2] Overlord decomposing task...")
+    log("[2] Overlord decomposing task...")
     plan = decompose_task(task_description, context)
     subtasks = plan.get("subtasks", [])
     log(f"    Plan: {plan.get('plan', '(none)')}")
@@ -379,17 +400,19 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
     for i, subtask in enumerate(overlord_only, 1):
         log(f"\n[Overlord {i}/{len(overlord_only)}] {subtask['description'][:60]}")
         result = execute_overlord_task(subtask)
-        results.append({
-            "subtask": subtask,
-            "routing": "overlord",
-            "status": "completed",
-            "result": result,
-        })
+        results.append(
+            {
+                "subtask": subtask,
+                "routing": "overlord",
+                "status": "completed",
+                "result": result,
+            }
+        )
         if result.get("changes"):
             all_changes.update(result["changes"])
         if result.get("recommendations"):
             all_recommendations.extend(result["recommendations"])
-        log(f"    -> Completed")
+        log("    -> Completed")
         if result.get("analysis"):
             # Print first 200 chars of analysis
             log(f"    Analysis: {result['analysis'][:200]}...")
@@ -399,19 +422,23 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
         log(f"\n[Worker {i}/{len(delegatable)}] {subtask['description'][:60]}")
 
         # Validate files aren't constitution
-        blocked = [f for f in subtask.get("files_to_modify", []) if classify_file(f) == "constitution"]
+        blocked = [
+            f for f in subtask.get("files_to_modify", []) if classify_file(f) == "constitution"
+        ]
         if blocked:
             log(f"    BLOCKED: {blocked} are constitution-level. Skipping.")
-            results.append({
-                "subtask": subtask,
-                "routing": "worker",
-                "status": "blocked",
-                "error": f"Constitution files: {blocked}",
-            })
+            results.append(
+                {
+                    "subtask": subtask,
+                    "routing": "worker",
+                    "status": "blocked",
+                    "error": f"Constitution files: {blocked}",
+                }
+            )
             continue
 
         # Build task spec for delegate.py
-        task_id = f"AUTO-{datetime.now(timezone.utc).strftime('%H%M%S')}-{i:02d}"
+        task_id = f"AUTO-{datetime.now(UTC).strftime('%H%M%S')}-{i:02d}"
         task_spec = {
             "id": task_id,
             "description": subtask["description"],
@@ -435,7 +462,7 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
             log(f"    Attempt {attempt}/{MAX_RETRIES}")
 
             # Call worker
-            log(f"    -> Sending to MiniMax...")
+            log("    -> Sending to MiniMax...")
             worker_result = call_worker(task_spec, revision_feedback)
 
             if worker_result.get("error"):
@@ -443,13 +470,15 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
                 if attempt < MAX_RETRIES:
                     revision_feedback = f"Error: {worker_result['error']}. Try again."
                     continue
-                results.append({
-                    "subtask": subtask,
-                    "routing": "worker",
-                    "status": "failed",
-                    "error": worker_result["error"],
-                    "attempts": attempt,
-                })
+                results.append(
+                    {
+                        "subtask": subtask,
+                        "routing": "worker",
+                        "status": "failed",
+                        "error": worker_result["error"],
+                        "attempts": attempt,
+                    }
+                )
                 break
 
             # Write review
@@ -457,24 +486,28 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
             log_delegation(task_spec, worker_result, "PENDING")
 
             # Overlord reviews
-            log(f"    -> Overlord reviewing...")
+            log("    -> Overlord reviewing...")
             review = review_worker_output(subtask, worker_result)
             decision = review.get("decision", "accept")
-            log(f"    -> Decision: {decision.upper()} (proof-wrong quality: {review.get('proof_wrong_quality', '?')}/100)")
+            log(
+                f"    -> Decision: {decision.upper()} (proof-wrong quality: {review.get('proof_wrong_quality', '?')}/100)"
+            )
 
             if decision == "accept":
                 accepted = True
                 all_changes.update(worker_result.get("changes", {}))
                 log_delegation(task_spec, worker_result, "ACCEPTED")
-                results.append({
-                    "subtask": subtask,
-                    "routing": "worker",
-                    "status": "accepted",
-                    "attempts": attempt,
-                    "changes": list(worker_result.get("changes", {}).keys()),
-                    "proof_wrong": worker_result.get("proof_wrong", ""),
-                    "review_feedback": review.get("feedback", ""),
-                })
+                results.append(
+                    {
+                        "subtask": subtask,
+                        "routing": "worker",
+                        "status": "accepted",
+                        "attempts": attempt,
+                        "changes": list(worker_result.get("changes", {}).keys()),
+                        "proof_wrong": worker_result.get("proof_wrong", ""),
+                        "review_feedback": review.get("feedback", ""),
+                    }
+                )
                 break
 
             elif decision == "reject":
@@ -483,15 +516,19 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
                 if attempt < MAX_RETRIES:
                     revision_feedback = review.get("feedback", "Rejected. Try again.")
                     if review.get("issues"):
-                        revision_feedback += "\nIssues:\n" + "\n".join(f"- {i}" for i in review["issues"])
+                        revision_feedback += "\nIssues:\n" + "\n".join(
+                            f"- {i}" for i in review["issues"]
+                        )
                 else:
-                    results.append({
-                        "subtask": subtask,
-                        "routing": "worker",
-                        "status": "rejected",
-                        "attempts": attempt,
-                        "feedback": review.get("feedback", ""),
-                    })
+                    results.append(
+                        {
+                            "subtask": subtask,
+                            "routing": "worker",
+                            "status": "rejected",
+                            "attempts": attempt,
+                            "feedback": review.get("feedback", ""),
+                        }
+                    )
 
             elif decision == "revise":
                 log(f"    -> Revision: {review.get('feedback', '')[:100]}")
@@ -503,22 +540,26 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
                     if pq >= 60:
                         all_changes.update(worker_result.get("changes", {}))
                         log(f"    -> Accepting after max revisions (quality {pq}/100)")
-                        results.append({
-                            "subtask": subtask,
-                            "routing": "worker",
-                            "status": "accepted",
-                            "attempts": attempt,
-                            "changes": list(worker_result.get("changes", {}).keys()),
-                            "note": "Accepted after max revisions",
-                        })
+                        results.append(
+                            {
+                                "subtask": subtask,
+                                "routing": "worker",
+                                "status": "accepted",
+                                "attempts": attempt,
+                                "changes": list(worker_result.get("changes", {}).keys()),
+                                "note": "Accepted after max revisions",
+                            }
+                        )
                     else:
-                        results.append({
-                            "subtask": subtask,
-                            "routing": "worker",
-                            "status": "failed",
-                            "attempts": attempt,
-                            "feedback": review.get("feedback", ""),
-                        })
+                        results.append(
+                            {
+                                "subtask": subtask,
+                                "routing": "worker",
+                                "status": "failed",
+                                "attempts": attempt,
+                                "feedback": review.get("feedback", ""),
+                            }
+                        )
 
     # Step 5: Apply changes
     applied_files = []
@@ -537,16 +578,24 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
 
     # Step 6: Summary
     elapsed = round(time.time() - start_time, 1)
-    accepted_count = sum(1 for r in results if r.get("status") == "accepted" or r.get("status") == "completed")
+    accepted_count = sum(
+        1 for r in results if r.get("status") == "accepted" or r.get("status") == "completed"
+    )
     failed_count = sum(1 for r in results if r.get("status") in ("failed", "rejected", "blocked"))
 
     # Record overall metrics
     try:
         from scripts.metrics import record
-        record("auto_delegation", task=task_description,
-               subtasks=len(subtasks), delegated=len(delegatable),
-               accepted=accepted_count, failed=failed_count,
-               elapsed_seconds=elapsed)
+
+        record(
+            "auto_delegation",
+            task=task_description,
+            subtasks=len(subtasks),
+            delegated=len(delegatable),
+            accepted=accepted_count,
+            failed=failed_count,
+            elapsed_seconds=elapsed,
+        )
     except (ImportError, Exception):
         pass
 
@@ -567,12 +616,14 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
 
     log(f"\n{'=' * 60}")
     log(f"RESULT: {accepted_count}/{len(subtasks)} subtasks completed")
-    log(f"Delegated: {len(delegatable)} to MiniMax | Overlord: {len(overlord_only)} handled directly")
+    log(
+        f"Delegated: {len(delegatable)} to MiniMax | Overlord: {len(overlord_only)} handled directly"
+    )
     log(f"Files changed: {len(applied_files)} | Time: {elapsed}s")
     if failed_count:
         log(f"Failed: {failed_count}")
     if all_recommendations:
-        log(f"\nRecommendations:")
+        log("\nRecommendations:")
         for rec in all_recommendations[:10]:
             log(f"  • {rec}")
     log(f"{'=' * 60}\n")
@@ -584,12 +635,15 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="RSI Auto-Delegation — automatic task routing between Claude and MiniMax"
     )
     parser.add_argument("task", nargs="*", help="Task description")
-    parser.add_argument("--dry-run", action="store_true", help="Decompose and delegate but don't write files")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Decompose and delegate but don't write files"
+    )
     parser.add_argument("--quiet", "-q", action="store_true", help="Minimal output")
     parser.add_argument("--json", action="store_true", help="JSON output only")
 

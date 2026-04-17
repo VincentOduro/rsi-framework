@@ -52,13 +52,11 @@ PORT_FILE = PROJECT_ROOT / ".memory" / ".hookd.port"
 # Pre-load ALL hook logic at startup — this is the whole point
 # These imports happen ONCE, not per-call
 from scripts.hooks import (
-    handle_pre_edit,
-    handle_pre_read,
+    _cache,
     handle_post_edit,
     handle_pre_bash,
-    _record_file_read,
-    _record_file_edited,
-    _cache,
+    handle_pre_edit,
+    handle_pre_read,
 )
 
 
@@ -188,7 +186,7 @@ def start_daemon(port: int = DEFAULT_PORT, foreground: bool = True) -> None:
                 # Handle each client in a thread (allows concurrent hooks)
                 thread = threading.Thread(target=_handle_client, args=(conn, addr), daemon=True)
                 thread.start()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break
@@ -243,6 +241,7 @@ def _read_port() -> int:
 # Client function (used by hook_client.py and for testing)
 # ---------------------------------------------------------------------------
 
+
 def send_to_daemon(action: str, tool_input: dict, port: int | None = None) -> tuple[int, str]:
     """Send a request to the daemon and return (exit_code, stdout).
 
@@ -273,7 +272,7 @@ def send_to_daemon(action: str, tool_input: dict, port: int | None = None) -> tu
         response = json.loads(data.decode("utf-8").strip())
         return response.get("exit_code", 0), response.get("stdout", "")
 
-    except (ConnectionRefusedError, socket.timeout):
+    except (TimeoutError, ConnectionRefusedError):
         return 1, "[RSI] Hook daemon not running. Start with: python3 scripts/hookd.py start\n"
     except Exception as e:
         return 1, f"[RSI] Daemon communication error: {e}\n"
@@ -283,15 +282,22 @@ def send_to_daemon(action: str, tool_input: dict, port: int | None = None) -> tu
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(description="RSI Hook Daemon")
-    parser.add_argument("command", nargs="?", default="status",
-                        choices=["start", "stop", "status"],
-                        help="start|stop|status")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT,
-                        help=f"TCP port (default: {DEFAULT_PORT})")
-    parser.add_argument("--bg", action="store_true",
-                        help="Start in background (detach from terminal)")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="status",
+        choices=["start", "stop", "status"],
+        help="start|stop|status",
+    )
+    parser.add_argument(
+        "--port", type=int, default=DEFAULT_PORT, help=f"TCP port (default: {DEFAULT_PORT})"
+    )
+    parser.add_argument(
+        "--bg", action="store_true", help="Start in background (detach from terminal)"
+    )
 
     args = parser.parse_args()
 
@@ -299,6 +305,7 @@ def main():
         if args.bg:
             # Fork to background (Unix) or use subprocess (Windows)
             import subprocess
+
             proc = subprocess.Popen(
                 [sys.executable, __file__, "start", "--port", str(args.port)],
                 cwd=PROJECT_ROOT,
@@ -309,7 +316,9 @@ def main():
             time.sleep(0.5)  # Wait for daemon to bind
             status = daemon_status()
             if status["running"]:
-                print(f"[RSI] Hook daemon started in background (PID {status['pid']}, port {status['port']})")
+                print(
+                    f"[RSI] Hook daemon started in background (PID {status['pid']}, port {status['port']})"
+                )
             else:
                 print("[RSI] Failed to start daemon in background")
         else:
