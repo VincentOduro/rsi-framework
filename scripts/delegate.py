@@ -112,6 +112,38 @@ def _get_api_key(config: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Path safety
+# ---------------------------------------------------------------------------
+
+
+class UnsafePathError(ValueError):
+    """Raised when a user- or worker-supplied path escapes PROJECT_ROOT."""
+
+
+def _safe_project_path(filepath: str) -> Path:
+    """Resolve `filepath` under PROJECT_ROOT and reject anything that escapes.
+
+    Blocks:
+      - absolute paths (/etc/passwd, C:\\Windows\\foo — pathlib's '/' operator
+        discards the left side when the right is absolute)
+      - traversal via .. that resolves outside PROJECT_ROOT
+      - Windows drive letters embedded in a relative-looking path
+
+    Returns the resolved absolute Path on success.
+    """
+    p = Path(filepath)
+    if p.is_absolute() or (len(filepath) >= 2 and filepath[1] == ":"):
+        raise UnsafePathError(f"Absolute paths are not allowed: {filepath!r}")
+    candidate = (PROJECT_ROOT / p).resolve()
+    root = PROJECT_ROOT.resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise UnsafePathError(f"Path escapes project root: {filepath!r}") from exc
+    return candidate
+
+
+# ---------------------------------------------------------------------------
 # Task validation
 # ---------------------------------------------------------------------------
 
@@ -148,13 +180,18 @@ def validate_task(task: dict) -> list[str]:
             else:
                 issues.append(f"Schema: {loc}: {msg}")
 
-    # File sensitivity check
+    # Path-safety + sensitivity on files_to_modify
     for filepath in task.get("files_to_modify", []):
+        try:
+            _safe_project_path(filepath)
+        except UnsafePathError as exc:
+            issues.append(f"BLOCKED: {exc}")
+            continue
         sensitivity = classify_file(filepath)
         if sensitivity == "constitution":
             issues.append(f"BLOCKED: {filepath} is constitution-level. Worker cannot modify.")
 
-    # Files to read must exist
+    # Path-safety + existence on files_to_read
     for filepath in task.get("files_to_read", []):
         # Strip line-range suffix for existence check
         clean_path = (
@@ -162,13 +199,21 @@ def validate_task(task: dict) -> list[str]:
             if ":" in filepath and filepath.split(":")[-1][0:1].isdigit()
             else filepath
         )
-        if not (PROJECT_ROOT / clean_path).exists():
+        try:
+            safe = _safe_project_path(clean_path)
+        except UnsafePathError as exc:
+            issues.append(f"BLOCKED: {exc}")
+            continue
+        if not safe.exists():
             issues.append(f"File to read does not exist: {clean_path}")
 
     # Output size warning — MiniMax has ~16K output token limit
     MAX_OUTPUT_LINES = 500
     for filepath in task.get("files_to_modify", []):
-        full = PROJECT_ROOT / filepath
+        try:
+            full = _safe_project_path(filepath)
+        except UnsafePathError:
+            continue  # already reported above
         if full.exists():
             line_count = full.read_text(encoding="utf-8").count("\n") + 1
             if line_count > MAX_OUTPUT_LINES:
@@ -267,7 +312,14 @@ def build_worker_prompt(task: dict) -> str:
     parts.append("FILE CONTENTS:\n")
     for file_spec in task.get("files_to_read", []):
         filepath, start_line, end_line = _parse_file_spec(file_spec)
-        full_path = PROJECT_ROOT / filepath
+        # Reject any path that escapes PROJECT_ROOT before reading. A bad
+        # task spec must NOT be able to exfiltrate arbitrary host files
+        # (e.g., /etc/passwd, ~/.ssh/id_rsa) into the worker prompt.
+        try:
+            full_path = _safe_project_path(filepath)
+        except UnsafePathError as exc:
+            parts.append(f'<file path="{filepath}">\n(REFUSED: {exc})\n</file>\n')
+            continue
         if full_path.exists():
             content = full_path.read_text(encoding="utf-8")
             if start_line or end_line:
@@ -585,7 +637,9 @@ def call_worker(task: dict, revision_instruction: str = "") -> dict:
                 "latency_seconds": latency,
             }
 
-        # Validate: only files_to_modify appear in changes
+        # Validate: only files_to_modify appear in changes, and every worker
+        # path resolves inside PROJECT_ROOT. apply_changes re-checks, but
+        # failing fast here keeps poisoned results out of save_result too.
         allowed = set(task.get("files_to_modify", []))
         actual = set(parsed.get("changes", {}).keys())
         violations = actual - allowed
@@ -595,6 +649,15 @@ def call_worker(task: dict, revision_instruction: str = "") -> dict:
                 "raw_response": raw[:2000],
                 "latency_seconds": latency,
             }
+        for worker_path in actual:
+            try:
+                _safe_project_path(worker_path)
+            except UnsafePathError as exc:
+                return {
+                    "error": f"Worker returned unsafe path: {exc}",
+                    "raw_response": raw[:2000],
+                    "latency_seconds": latency,
+                }
 
         return {
             "changes": parsed.get("changes", {}),
@@ -701,7 +764,14 @@ def apply_changes(task: dict, result: dict) -> list[str]:
     original_contents = {}
 
     for filepath, content in result.get("changes", {}).items():
-        full_path = PROJECT_ROOT / filepath
+        # Bound every write to PROJECT_ROOT. A malicious or confused worker
+        # cannot write outside the project (e.g., ~/.ssh/authorized_keys,
+        # /etc/*, C:\Windows\*) via absolute or traversal paths.
+        try:
+            full_path = _safe_project_path(filepath)
+        except UnsafePathError as exc:
+            print(f"[RSI] REFUSED unsafe worker path: {exc}", file=sys.stderr)
+            continue
         full_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Store original for revert
@@ -780,7 +850,10 @@ def _git_checkpoint(task_id: str, files: list[str]) -> None:
 def _git_revert(files: list[str], originals: dict[str, str]) -> None:
     """Revert changed files to their original content."""
     for filepath in files:
-        full_path = PROJECT_ROOT / filepath
+        try:
+            full_path = _safe_project_path(filepath)
+        except UnsafePathError:
+            continue  # should not happen — apply_changes already filtered these
         if filepath in originals:
             full_path.write_text(originals[filepath], encoding="utf-8")
             print(f"[RSI] Reverted: {filepath}")

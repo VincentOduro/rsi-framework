@@ -9,6 +9,38 @@ __pycache__/
 *.swo
 *~
 
+# Secrets and credentials — NEVER commit these.
+.env
+.env.*
+*.env
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*.gpg
+*.asc
+credentials.json
+credentials.yaml
+credentials.yml
+secrets.json
+secrets.yaml
+secrets.yml
+service-account*.json
+.aws/
+.gcloud/
+.azure/
+.netrc
+.pypirc
+# Common AI-tool auth/session stores
+.openai/
+.anthropic/
+.minimax/
+
 # RSI runtime state (not source, written during normal operation)
 .memory/.preflight_state.json
 .memory/.session_timestamp

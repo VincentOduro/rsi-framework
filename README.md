@@ -50,9 +50,15 @@ File sensitivity is declared in [`.rsi/architecture.yaml`](.rsi/architecture.yam
 
 ```bash
 python --version               # must be 3.11+
-pip install pydantic openai    # or `pip install -e .` from pyproject.toml
+pip install -e .               # installs pydantic + openai from pyproject.toml
+# or: pip install -e ".[dev]"  # also installs mypy, ruff, pre-commit, pip-audit, pytest
+
 export MINIMAX_API_KEY=sk-...  # required for delegation
 ```
+
+**Credential hygiene.** The framework reads `MINIMAX_API_KEY` from the environment only — never put it in a committed file. `.env`, `*.pem`, `*.key`, `credentials.*`, and common cloud-SDK auth dirs are gitignored by default, but double-check with `git check-ignore -v <file>` before placing any secret in the project tree.
+
+**GitHub auth.** Prefer `gh auth login` or a [credential helper](https://git-scm.com/book/en/v2/Git-Tools-Credential-Storage) over embedding a PAT in your remote URL (`https://x-access-token:TOKEN@github.com/...`). An inline PAT is visible in `git remote -v` output, shell history, and any CI log that dumps env state; rotate it if you suspect exposure and switch to a credential helper.
 
 ### Drop into a project
 

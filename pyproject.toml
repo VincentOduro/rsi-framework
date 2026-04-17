@@ -4,8 +4,22 @@ version = "2.2.0"
 description = "Recursive Self-Improvement framework built on Toyota Production System principles"
 requires-python = ">=3.11"
 dependencies = [
-    "pydantic>=2.0",
-    "openai>=1.0",
+    # Lower bound = minimum version free of known CVEs and matching the
+    # Pydantic v2 API used in engine/protocol.py.
+    "pydantic>=2.8,<3",
+    # Lower bound = first openai SDK release that uses httpx (not urllib3)
+    # and supports the OpenAI-compatible /v1/chat/completions surface
+    # MiniMax implements.
+    "openai>=1.40,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.10",
+    "ruff>=0.5",
+    "pre-commit>=3.7",
+    "pip-audit>=2.7",
+    "pytest>=8",
 ]
 
 [tool.mypy]
