@@ -20,6 +20,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 DELEGATIONS_LOG = PROJECT_ROOT / ".memory" / "metrics" / "delegations.jsonl"
@@ -31,10 +32,10 @@ DEFAULT_MIN_SAMPLES = 5
 DEFAULT_SPOT_CHECK_RATE = 0.2
 
 
-def _load_events() -> list[dict]:
+def _load_events() -> list[dict[str, Any]]:
     if not DELEGATIONS_LOG.exists():
         return []
-    events = []
+    events: list[dict[str, Any]] = []
     with open(DELEGATIONS_LOG) as f:
         for line in f:
             if line.strip():
@@ -45,7 +46,7 @@ def _load_events() -> list[dict]:
     return events
 
 
-def _load_trust_config() -> dict:
+def _load_trust_config() -> dict[str, Any]:
     """Load trust thresholds from architecture.yaml."""
     if not ARCHITECTURE_FILE.exists():
         return {
@@ -55,7 +56,7 @@ def _load_trust_config() -> dict:
         }
 
     content = ARCHITECTURE_FILE.read_text(encoding="utf-8")
-    config = {}
+    config: dict[str, Any] = {}
     in_trust = False
     for line in content.split("\n"):
         stripped = line.strip()
@@ -81,7 +82,7 @@ def _load_trust_config() -> dict:
     }
 
 
-def _infer_task_type(event: dict) -> str:
+def _infer_task_type(event: dict[str, Any]) -> str:
     """Infer task type from delegation event. Uses task_id prefix or file patterns."""
     task_id = event.get("task_id", "")
 
@@ -103,7 +104,7 @@ def _infer_task_type(event: dict) -> str:
     if task_file.exists():
         try:
             spec = json.loads(task_file.read_text(encoding="utf-8"))
-            return spec.get("type", "unknown")
+            return str(spec.get("type", "unknown"))
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -115,7 +116,7 @@ def _infer_task_type(event: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def compute_trust(task_type: str | None = None) -> dict:
+def compute_trust(task_type: str | None = None) -> dict[str, Any]:
     """Compute worker trust score from delegation history.
 
     Inspired by Orchestrator-Agent Trust confidence calibration metrics.
@@ -221,7 +222,7 @@ def should_auto_accept(task_type: str) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="RSI Worker Trust Scoring")
     sub = parser.add_subparsers(dest="cmd")
 

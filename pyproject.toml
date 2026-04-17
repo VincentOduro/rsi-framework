@@ -17,7 +17,15 @@ warn_return_any = true
 disallow_untyped_defs = true
 no_implicit_optional = true
 check_untyped_defs = true
-files = ["engine", "scripts/rsi.py"]
+files = [
+    "engine",
+    "scripts/rsi.py",
+    "scripts/colors.py",
+    "scripts/classify_file.py",
+    "scripts/metrics.py",
+    "scripts/ceremony.py",
+    "scripts/trust.py",
+]
 # Scripts outside the strict scope are still imported by rsi.py (for metrics,
 # session_brief, etc.). Treat them as untyped stubs so we don't fail on their
 # missing annotations while Phase E6 has yet to harden them.

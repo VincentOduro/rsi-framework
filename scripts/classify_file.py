@@ -27,11 +27,11 @@ SENSITIVITY_LEVELS = ["constitution", "guarded", "open"]
 DEFAULT_SENSITIVITY = "guarded"
 
 
-_architecture_cache: dict | None = None
+_architecture_cache: dict[str, list[str]] | None = None
 _architecture_mtime: float = 0.0
 
 
-def _load_architecture() -> dict:
+def _load_architecture() -> dict[str, list[str]]:
     """Load and parse architecture.yaml. Cached until file changes on disk."""
     global _architecture_cache, _architecture_mtime
 
@@ -49,8 +49,8 @@ def _load_architecture() -> dict:
 
     # Simple YAML-subset parser: extract file_sensitivity patterns
     # Handles the specific structure in architecture.yaml without requiring PyYAML
-    result = {}
-    current_level = None
+    result: dict[str, list[str]] = {}
+    current_level: str | None = None
     in_patterns = False
 
     for line in content.split("\n"):
@@ -126,7 +126,7 @@ def is_worker_allowed(filepath: str) -> bool:
     return classify_file(filepath) != "constitution"
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Classify file sensitivity level from .rsi/architecture.yaml"
     )

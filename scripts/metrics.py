@@ -18,6 +18,7 @@ Storage: .memory/metrics/events.jsonl (append-only, one JSON object per line)
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 METRICS_DIR = PROJECT_ROOT / ".memory" / "metrics"
@@ -37,40 +38,44 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def record(event_type: str, **kwargs) -> dict:
+def record(event_type: str, **kwargs: Any) -> dict[str, Any]:
     """Append a metric event. Returns the event dict."""
     _ensure_dir()
-    event = {"ts": _now(), "type": event_type, **kwargs}
-    with open(EVENTS_FILE, "a") as f:
+    event: dict[str, Any] = {"ts": _now(), "type": event_type, **kwargs}
+    with open(EVENTS_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
     return event
 
 
-def record_task_start(task: str, round_id: str = "") -> dict:
+def record_task_start(task: str, round_id: str = "") -> dict[str, Any]:
     return record("task_start", task=task, round=round_id)
 
 
-def record_task_complete(task: str, round_id: str = "", first_pass: bool = True) -> dict:
+def record_task_complete(task: str, round_id: str = "", first_pass: bool = True) -> dict[str, Any]:
     return record("task_complete", task=task, round=round_id, first_pass=first_pass)
 
 
-def record_verify_result(passed: bool, attempt: int = 1, files: list[str] | None = None) -> dict:
+def record_verify_result(
+    passed: bool, attempt: int = 1, files: list[str] | None = None
+) -> dict[str, Any]:
     return record("verify_result", passed=passed, attempt=attempt, files=files or [])
 
 
-def record_ceremony(level: str, duration_minutes: float, task: str = "") -> dict:
+def record_ceremony(level: str, duration_minutes: float, task: str = "") -> dict[str, Any]:
     return record("ceremony_complete", level=level, duration_min=duration_minutes, task=task)
 
 
 def record_defect(
     task: str, severity: str, found_by: str = "review", description: str = ""
-) -> dict:
+) -> dict[str, Any]:
     return record(
         "defect_found", task=task, severity=severity, found_by=found_by, description=description
     )
 
 
-def record_finding_outcome(finding_id: str, led_to_action: bool, action: str = "") -> dict:
+def record_finding_outcome(
+    finding_id: str, led_to_action: bool, action: str = ""
+) -> dict[str, Any]:
     return record(
         "finding_outcome", finding_id=finding_id, led_to_action=led_to_action, action=action
     )
@@ -81,11 +86,11 @@ def record_finding_outcome(finding_id: str, led_to_action: bool, action: str = "
 # ---------------------------------------------------------------------------
 
 
-def load_events(event_type: str | None = None, days: int | None = None) -> list[dict]:
+def load_events(event_type: str | None = None, days: int | None = None) -> list[dict[str, Any]]:
     """Load events, optionally filtered by type and recency."""
     if not EVENTS_FILE.exists():
         return []
-    events = []
+    events: list[dict[str, Any]] = []
     cutoff = None
     if days is not None:
         from datetime import timedelta
@@ -118,16 +123,16 @@ def load_events(event_type: str | None = None, days: int | None = None) -> list[
 # ---------------------------------------------------------------------------
 
 
-def cycle_times(days: int = 30) -> list[dict]:
+def cycle_times(days: int = 30) -> list[dict[str, Any]]:
     """Compute cycle time for each completed task in the period.
     Returns list of {task, started, completed, hours}."""
-    starts = {}
+    starts: dict[str, str] = {}
     for e in load_events("task_start", days=days):
         task = e.get("task", "")
         if task:
             starts[task] = e["ts"]
 
-    results = []
+    results: list[dict[str, Any]] = []
     for e in load_events("task_complete", days=days):
         task = e.get("task", "")
         if task and task in starts:
@@ -148,7 +153,7 @@ def cycle_times(days: int = 30) -> list[dict]:
     return results
 
 
-def first_pass_yield(days: int = 30) -> dict:
+def first_pass_yield(days: int = 30) -> dict[str, Any]:
     """Fraction of verify results that passed on first attempt.
     Returns {passed, total, yield_pct}."""
     events = load_events("verify_result", days=days)
@@ -162,7 +167,7 @@ def first_pass_yield(days: int = 30) -> dict:
     }
 
 
-def defect_rate(days: int = 30) -> dict:
+def defect_rate(days: int = 30) -> dict[str, Any]:
     """Defects per completed task.
     Returns {defects, tasks_completed, rate}."""
     defects = len(load_events("defect_found", days=days))
@@ -174,7 +179,7 @@ def defect_rate(days: int = 30) -> dict:
     }
 
 
-def ceremony_stats(days: int = 30) -> dict:
+def ceremony_stats(days: int = 30) -> dict[str, Any]:
     """Ceremony time statistics.
     Returns {total_minutes, count, avg_minutes, by_level}."""
     events = load_events("ceremony_complete", days=days)
@@ -183,7 +188,7 @@ def ceremony_stats(days: int = 30) -> dict:
     for e in events:
         level = e.get("level", "unknown")
         by_level.setdefault(level, []).append(e.get("duration_min", 0))
-    level_stats = {}
+    level_stats: dict[str, dict[str, Any]] = {}
     for level, durations in by_level.items():
         level_stats[level] = {
             "count": len(durations),
@@ -197,7 +202,7 @@ def ceremony_stats(days: int = 30) -> dict:
     }
 
 
-def signal_ratio(days: int = 30) -> dict:
+def signal_ratio(days: int = 30) -> dict[str, Any]:
     """Fraction of findings that led to action (signal vs noise).
     Returns {actioned, total, ratio_pct}."""
     events = load_events("finding_outcome", days=days)
@@ -210,7 +215,7 @@ def signal_ratio(days: int = 30) -> dict:
     }
 
 
-def summary(days: int = 7) -> dict:
+def summary(days: int = 7) -> dict[str, Any]:
     """Full metrics summary for the dashboard."""
     ct = cycle_times(days)
     avg_ct = round(sum(c["hours"] for c in ct) / len(ct), 2) if ct else 0
@@ -226,7 +231,7 @@ def summary(days: int = 7) -> dict:
     }
 
 
-def _defects_by_severity(days: int = 30) -> dict:
+def _defects_by_severity(days: int = 30) -> dict[str, int]:
     events = load_events("defect_found", days=days)
     counts: dict[str, int] = {}
     for e in events:
@@ -240,7 +245,7 @@ def _defects_by_severity(days: int = 30) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def main():
+def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="RSI Metrics Engine")

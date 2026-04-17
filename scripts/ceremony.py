@@ -21,6 +21,7 @@ Ceremony levels:
 
 import subprocess
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
@@ -52,7 +53,7 @@ def classify_change(
     files_changed: list[str] | None = None,
     lines_added: int = 0,
     lines_removed: int = 0,
-) -> dict:
+) -> dict[str, Any]:
     """Classify a change and return the required ceremony level.
 
     Returns:
@@ -241,7 +242,7 @@ def _read_file_safe(filepath: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def main():
+def main() -> None:
     import argparse
 
     from scripts.colors import bold, cyan, green, red, yellow

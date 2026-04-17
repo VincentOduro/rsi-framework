@@ -12,7 +12,7 @@ repos:
       - id: mypy
         # Only type-check the strict-scope files. The rest of scripts/ is
         # deferred to Phase E6 hardening follow-ups.
-        files: ^(engine/|scripts/rsi\.py$)
+        files: ^(engine/|scripts/(rsi|colors|classify_file|metrics|ceremony|trust)\.py$)
         additional_dependencies:
           - pydantic>=2.0
 
