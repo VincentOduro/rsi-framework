@@ -811,12 +811,17 @@ def log_delegation(task: dict, result: dict, verdict: str = "PENDING") -> None:
 # ---------------------------------------------------------------------------
 
 
-def delegate_parallel(task_files: list[str], max_workers: int = 3) -> list[dict]:
+def delegate_parallel(task_files: list[str], max_workers: int = 10) -> list[dict]:
     """Send tasks to MiniMax with DAG-aware parallel execution.
 
     Respects both explicit depends_on and implicit file overlap dependencies.
     Tasks are sorted into execution layers — each layer runs in parallel,
     layers execute sequentially.
+
+    `max_workers` was raised from 3 to 10 after Phase E7 measured 99.96%
+    thread-pool efficiency at 20 concurrent workers with zero GIL pressure
+    (see docs/decisions/phase-E7.md). If MiniMax throttles concurrent
+    requests from one API key, lower this with --workers.
 
     Inspired by ccswarm (parallelism) and OpenMultiAgent (task DAG).
     """
@@ -1155,7 +1160,12 @@ def main():
     parser.add_argument("--revise", help="Revision instruction for the worker")
     parser.add_argument("--history", action="store_true", help="Show delegation history")
     parser.add_argument("--parallel", nargs="*", help="Delegate multiple tasks in parallel")
-    parser.add_argument("--workers", type=int, default=3, help="Max parallel workers (default: 3)")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=10,
+        help="Max parallel workers (default: 10; lower if MiniMax rate-limits)",
+    )
 
     args = parser.parse_args()
 
