@@ -1,199 +1,282 @@
 # Recursive Self-Improvement (RSI) Framework
 
-A disciplined meta-process that turns every implementation into a learning opportunity — built on Toyota Production System principles. Designed to be wired into any AI-assisted project so the agent builds according to quality principles, forever improving itself.
+A disciplined meta-process that turns every implementation into a learning opportunity — built on Toyota Production System principles. Drops into any AI-assisted project so the agent builds under measured quality discipline and keeps improving itself.
 
-**Status:** v2.0 | **Language:** Agnostic | **Stack:** Python + Bash + Git | **Zero dependencies**
+**Status:** v2.2 • **Runtime:** Python 3.11+ • **Deps:** pydantic, openai • **Tested on:** Windows 11, macOS, Linux, WSL2
 
 ---
 
 ## What This Is
 
-Most AI agents ship code fast but learn nothing. The same mistakes repeat. Quality is assumed, not measured. This framework fixes that by enforcing Toyota's manufacturing discipline on software development:
+Most AI agents ship code fast but learn nothing. The same mistakes repeat. Quality is assumed, not measured. This framework fixes that by enforcing Toyota's manufacturing discipline on software development — and by giving you a **two-model workflow** where a senior "overlord" model (Claude) reviews a cheaper "worker" model (MiniMax-M2.7) so you get scale without giving up judgment.
 
-- **Measure** cycle time, first-pass yield, defect rate
-- **Enforce** read-before-edit, verification, memory updates
-- **Reflect** with structured proof-wrong hypotheses and 5-Whys
-- **Improve** by tracking what works and eliminating what doesn't
+- **Measure** — cycle time, first-pass yield, defect rate, trust scores
+- **Enforce** — read-before-edit, verification, delegation trails, quality gates
+- **Reflect** — structured proof-wrong hypotheses, 5-Whys analyses, FAIL-index
+- **Improve** — metrics track whether the framework itself is paying off
+- **Delegate** — the overlord directs, the worker implements, every change is reviewed
+
+## The Overlord-Worker Model
+
+The core idea in v2.x: **two models, different jobs.**
+
+```
+┌─────────────────┐              ┌─────────────────┐
+│  Overlord       │  task spec   │  Worker         │
+│  (Claude, you)  │ ───────────▶ │  (MiniMax-M2.7) │
+│                 │              │                 │
+│  - architect    │ ◀─────────── │  - implementer  │
+│  - reviewer     │   result     │  - bulk writer  │
+│  - decision     │              │  - test writer  │
+└─────────────────┘              └─────────────────┘
+         │                                ▲
+         │   .memory/reviews/pending/     │
+         └────────────────────────────────┘
+```
+
+The overlord writes the task spec (`.rsi/tasks/TASK-NNN.json`), sends it to the worker via `scripts/delegate.py`, reviews the worker's output in `.memory/reviews/pending/`, and either accepts (quality-ratchet auto-commit) or rejects/revises. The framework's pre-edit hook **blocks the overlord from editing guarded files without a delegation trail** — you physically can't cheat.
+
+File sensitivity is declared in [`.rsi/architecture.yaml`](.rsi/architecture.yaml):
+
+| Level | Who can modify | Examples |
+|---|---|---|
+| `constitution` | overlord only | `CLAUDE.md`, `.rsi/**`, `scripts/hooks.py`, `scripts/delegate.py` |
+| `guarded` | worker via delegation + review | `scripts/*.py`, `adapters/**` |
+| `open` | worker freely | `tests/**`, `docs/**`, `*.md` |
 
 ## Quick Start
 
-```bash
-# 1. ONE-TIME SETUP (select your AI model when prompted):
-python3 scripts/setup.py
-# Or specify model directly:
-#   python3 scripts/setup.py --model claude    # Claude Code
-#   python3 scripts/setup.py --model opencode   # opencode / MiniMax-M2.7
-#   python3 scripts/setup.py --model shell      # Any CLI AI tool
+### Prerequisites
 
-# 2. Initialize memory (one-time per project):
+```bash
+python --version               # must be 3.11+
+pip install pydantic openai    # or `pip install -e .` from pyproject.toml
+export MINIMAX_API_KEY=sk-...  # required for delegation
+```
+
+### Drop into a project
+
+```bash
+# 1. Copy the framework into your project
+cp -r rsi-framework/* /path/to/your-project/
+cd /path/to/your-project
+
+# 2. One-time setup — installs agent hooks for your AI tool
+python scripts/setup.py --model claude    # or opencode, shell, etc.
+
+# 3. Initialize memory
 cp -r MEMORY_TEMPLATE .memory
 
-# 3. Start a session:
-python3 scripts/rsi.py init
-
-# 4. See the dashboard:
-python3 scripts/rsi.py dashboard
-
-# 5. After every code change:
-python3 scripts/rsi.py loop
-
-# 6. Before pushing:
-python3 scripts/rsi.py ci
+# 4. Start a session
+python scripts/rsi.py init
 ```
 
-## For AI Agents
-
-Drop this framework into any project. The agent reads `CLAUDE.md` on session start and follows the standard work. Tool-layer enforcement depends on your AI model:
-
-| Model | Enforcement |
-|-------|------------|
-| Claude Code | `.claude/settings.json` PreToolUse/PostToolUse hooks |
-| opencode / MiniMax-M2.7 | Shell wrapper (`opencode_wrapper.sh`) |
-| Other CLI tools | Shell integrator (`shell_integrator.py`) |
+### Everyday workflow
 
 ```bash
-# Copy into your project
-cp -r rsi-framework/ /path/to/your-project/
-cd /path/to/your-project
-python3 scripts/setup.py --model <your-model>  # Install for your AI tool
+# Check what's happening
+python scripts/rsi.py status
+python scripts/rsi.py dashboard
+
+# Write a task spec and delegate it to the worker
+python scripts/rsi.py delegate .rsi/tasks/TASK-042.json
+
+# Review the worker's output
+python scripts/rsi.py review-queue list
+python scripts/rsi.py review-queue show TASK-042
+python scripts/rsi.py review-queue accept TASK-042 --apply
+
+# After a code change (overlord-side edits)
+python scripts/rsi.py loop          # full A→B→C capture, review, optimize
+python scripts/rsi.py verify        # quick self-check
+
+# Before pushing
+python scripts/rsi.py ci
 ```
 
-The agent is now operating under TPS discipline.
-
----
-
-## Toyota Principles → Framework Mechanisms
-
-| # | Toyota Principle | TPS Term | Framework Mechanism |
-|---|---|---|---|
-| 1 | Long-term philosophy | — | The framework IS the investment. Measured by metrics over time. |
-| 2 | Continuous process flow | Kaizen | A→B→C loop after every change. Ceremony level auto-classified. |
-| 3 | Pull systems / avoid waste | Muda | Signal ratio tracking. Waste indicators on dashboard. |
-| 4 | Level the workload | Heijunka | `ceremony.py` classifies changes: minimal/standard/thorough/major. |
-| 5 | Stop and fix quality first | Jidoka | Hooks block edits, commits, and pushes on failure. No bypass. |
-| 6 | Standardized tasks | — | `CLAUDE.md` defines standard work. Scripts ARE the standard. |
-| 7 | Visual control | Andon | `dashboard.py` — one command, complete health picture. |
-| 8 | Reliable technology | — | Python + Bash + Git. Zero external dependencies. |
-| 9-10 | Develop people | — | Calibration tracking develops judgment over time. |
-| 11 | Respect network | — | Open framework. `framework_sync.py` for feedback. |
-| 12 | Go and see | Genchi Genbutsu | Pre-edit hook blocks editing unread files. |
-| 13 | Slow consensus, fast implementation | Nemawashi | Ceremony classification slows big changes, speeds small ones. |
-| 14 | Learning organization | Hansei + Kaizen | 5-Whys, FAIL-index, calibration, proof-wrong tracking. |
-
----
+See [`.rsi/DELEGATION_GUIDE.md`](.rsi/DELEGATION_GUIDE.md) for the full task-spec schema and routing table.
 
 ## Architecture
 
-### The Pipeline
+### The pipeline
 
 ```
-Change → Classify → Verify → Capture → Review → Optimize → Measure
-         (ceremony)  (jidoka)  (Module A) (Module B) (Module C) (metrics)
+Change → Classify → Delegate → Review → Verify → Capture → Optimize → Measure
+         (ceremony) (worker)   (gate)   (jidoka) (Mod A)   (Mod C)   (metrics)
 ```
 
-### The Enforcement Stack
+### The enforcement stack
 
 ```
-Layer 1: Tool hooks     (.claude/settings.json → hooks.py)
-         ↓ Blocks edit if file not read
-         ↓ Blocks --no-verify
-         ↓ Records all reads and edits
+Layer 0: Delegation gate    (.rsi/architecture.yaml + scripts/hooks.py)
+         ↓ Blocks overlord edits to guarded files without a delegation trail
+         ↓ 1-hour override with reason if bypass is needed
 
-Layer 2: Git hooks      (scripts/git-hooks/)
+Layer 1: Tool hooks          (.claude/settings.json → scripts/hooks.py)
+         ↓ Blocks edit if file not read (Genchi Genbutsu)
+         ↓ Blocks --no-verify bypasses (Jidoka)
+         ↓ Records every read, edit, and session
+
+Layer 2: Quality ratchet     (scripts/delegate.py apply_changes)
+         ↓ After each accepted task: verify passes → checkpoint commit
+         ↓ Verify fails → automatic revert; quality only goes up
+
+Layer 3: Git hooks           (scripts/git-hooks/)
          ↓ Pre-commit: session check + preflight + self-verify
          ↓ Commit-msg: blocks if no memory update
 
-Layer 3: CI gate        (scripts/ci_check.sh)
+Layer 4: Pre-commit          (.pre-commit-config.yaml)
+         ↓ ruff + ruff-format + mypy --strict + pytest
+
+Layer 5: CI gate             (scripts/ci_check.sh)
          ↓ Syntax, tests, preflight, placeholders, secrets
 
-Layer 4: Measurement    (metrics.py + calibration.py + dashboard.py)
-         ↓ Tracks whether the framework is working
+Layer 6: Measurement         (scripts/metrics.py + calibration.py + trust.py)
+         ↓ Tracks whether the framework is working — no hidden problems
 ```
 
-### Key Files
+### Key components
 
-| File | Purpose |
+| File | Role |
 |---|---|
-| `CLAUDE.md` | Agent standard work — the rules of engagement |
-| `.claude/settings.json` | Tool-layer hook configuration |
-| `scripts/rsi.py` | Unified CLI — single entry point for everything |
-| `scripts/hooks.py` | Tool-layer enforcement (poka-yoke) |
-| `scripts/metrics.py` | Value stream measurement engine |
-| `scripts/dashboard.py` | Andon board — visual management |
-| `scripts/calibration.py` | Proof-wrong hypothesis tracking |
-| `scripts/ceremony.py` | Heijunka — right-sized ceremony |
-| `scripts/root_cause.py` | 5-Whys root cause analysis |
-| `scripts/post_implementation.py` | Module A: capture what happened |
-| `scripts/self_feedback.py` | Module B: review and identify issues |
-| `scripts/self_optimization.py` | Module C: prioritize and plan |
-| `scripts/self_verify.py` | Pluggable syntax/quality verification |
-| `scripts/preflight_check.py` | Read-before-edit enforcement |
-| `scripts/backlog.py` | Markdown-based task backlog |
+| [`CLAUDE.md`](CLAUDE.md) | Agent standard work — the rules of engagement |
+| [`.rsi/architecture.yaml`](.rsi/architecture.yaml) | File sensitivity + worker API config |
+| [`.rsi/rules.yaml`](.rsi/rules.yaml) | Declarative enforcement rules |
+| [`engine/protocol.py`](engine/protocol.py) | Pydantic v2 models: TaskSpec, WorkerResult, ReviewDecision, DelegationEvent |
+| [`scripts/rsi.py`](scripts/rsi.py) | Unified CLI — single entry point |
+| [`scripts/hooks.py`](scripts/hooks.py) | Tool-layer enforcement (poka-yoke) |
+| [`scripts/delegate.py`](scripts/delegate.py) | MiniMax delegation, parallel DAG executor, quality ratchet |
+| [`scripts/review_queue.py`](scripts/review_queue.py) | Review queue with JSON validation |
+| [`scripts/classify_file.py`](scripts/classify_file.py) | File sensitivity classifier |
+| [`scripts/rules_engine.py`](scripts/rules_engine.py) | Declarative rule evaluator |
+| [`scripts/trust.py`](scripts/trust.py) | Worker trust scoring — high-trust types auto-accept |
+| [`scripts/metrics.py`](scripts/metrics.py) | Value stream measurement |
+| [`scripts/dashboard.py`](scripts/dashboard.py) | Andon board |
+| [`scripts/calibration.py`](scripts/calibration.py) | Proof-wrong hypothesis tracking |
+| [`scripts/ceremony.py`](scripts/ceremony.py) | Heijunka — right-sized ceremony |
+| [`scripts/root_cause.py`](scripts/root_cause.py) | 5-Whys |
 
----
+### Toyota principles → framework mechanisms
 
-## Unified CLI
+| # | Principle | TPS term | Mechanism |
+|---|---|---|---|
+| 2 | Continuous process flow | Kaizen | A→B→C loop after every change |
+| 4 | Level the workload | Heijunka | `ceremony.py` — minimal/standard/thorough/major |
+| 5 | Stop and fix quality first | Jidoka | Hooks block edits, commits, pushes on failure |
+| 6 | Standardized tasks | — | `CLAUDE.md` + scripts are the standard |
+| 7 | Visual control | Andon | `dashboard.py` — one-command health |
+| 12 | Go and see | Genchi Genbutsu | Pre-edit hook blocks editing unread files |
+| 14 | Learning organization | Hansei + Kaizen | 5-Whys, FAIL-index, calibration, proof-wrong |
 
-```bash
-python3 scripts/rsi.py <command>
+## CLI reference
 
-# Session
-  init              Start a new session
-  status            Quick status check
-  dashboard         Full andon board
+```
+python scripts/rsi.py <command>
 
-# Development loop
-  ceremony          Check required ceremony level
-  loop              Full A→B→C with auto-classification
-  verify            Self-verification checks
-  preflight         Read-before-edit compliance
+Session             Development loop
+  init                ceremony        Check required ceremony
+  status              loop            Full A→B→C with auto-classify
+  dashboard           verify          Self-verification
+                      preflight       Read-before-edit compliance
 
-# Tracking
-  metrics [cmd]     Value stream metrics
-  calibrate [cmd]   Proof-wrong calibration
-  backlog [cmd]     Task backlog management
-  root-cause        5-Whys analysis
+Delegation          Tracking
+  delegate <task>     metrics [cmd]   Value stream metrics
+  review-queue list   calibrate       Proof-wrong calibration
+  review-queue show   backlog         Task backlog
+  review-queue accept root-cause      5-Whys analysis
+  classify <path>     trust [cmd]     Worker trust scores
+  override <path>
 
-# Operations
-  ci                CI gate checks
-  setup             One-time setup
-  sync              Framework sync/update
+Operations
+  ci                  sync            Framework sync
+  setup               status          Quick status
 ```
 
----
+## Metrics & measurement
 
-## Metrics & Measurement
+The framework measures itself. If it's not improving quality, it's waste (muda).
 
-The framework measures itself. If it's not improving quality, it's waste.
-
-| Metric | What It Measures | Target |
+| Metric | What it measures | Target |
 |---|---|---|
-| First-pass yield | % of verifications passing first try | >80% |
-| Defect rate | Bugs per completed task | <0.3 |
-| Signal ratio | % of findings that led to action | >50% |
-| Cycle time | Hours from task start to complete | Trending down |
-| Ceremony cost | Minutes per framework session | Proportional to risk |
-| Hypothesis quality | Avg calibration score (0-100) | >60 |
+| First-pass yield | % verifications passing first try | > 80% |
+| Defect rate | Defects per completed task | < 0.3 |
+| Signal ratio | % findings that led to action | > 50% |
+| Cycle time | Hours from task start to complete | trending down |
+| Ceremony cost | Minutes per framework session | proportional to risk |
+| Hypothesis quality | Avg calibration score (0-100) | > 60 |
+| Worker trust | MiniMax accept rate by task type | > 80% → auto-accept |
 
 ```bash
-python3 scripts/rsi.py dashboard    # See everything at a glance
-python3 scripts/rsi.py metrics summary
+python scripts/rsi.py dashboard         # everything at a glance
+python scripts/rsi.py metrics summary
+python scripts/rsi.py trust score
 ```
 
----
+## Development
 
-## Version History
+### Running tests
+
+```bash
+python -m pytest tests/ -q              # 159 tests, ~1s
+python -m mypy                          # strict on engine/ + 6 scripts
+python -m ruff check                    # lint
+python -m ruff format                   # auto-format
+```
+
+### Pre-commit
+
+```bash
+pip install pre-commit
+pre-commit install                      # registers git hook
+pre-commit run --all-files              # one-shot full sweep
+```
+
+Hooks: ruff, ruff-format, mypy --strict, pytest.
+
+### Editing framework internals
+
+1. Classify the file: `python scripts/rsi.py classify <path>`
+2. If `constitution` → overlord edits directly
+3. If `guarded` → write a task spec, delegate, review
+4. If `open` → anyone edits freely
+
+When delegation is the wrong tool for a small mechanical change (e.g., adding a single type annotation), use `python scripts/rsi.py override <path> --reason "..."` — the override expires in 60 minutes and is auditable.
+
+## Recent evolution
+
+The framework has been through a measurement-gated evolution from v2.0 to v2.2, with every decision backed by numbers:
+
+| Phase | Question | Outcome | Decision record |
+|---|---|---|---|
+| E0 | How slow is the Python hook stack? | 189ms p50 on WSL UNC; 62ms on native Win | [`docs/baseline-metrics.md`](docs/baseline-metrics.md) |
+| E0a | Can a persistent daemon fix startup cost? | Daemon works but needs compiled client | [`docs/decisions/phase-E0a.md`](docs/decisions/phase-E0a.md) |
+| E2-E3 | Does a Go hook binary help? | 10.4ms p50 on native Win (83% faster) | [`docs/decisions/phase-E2-E3.md`](docs/decisions/phase-E2-E3.md) |
+| E1 | Migrate protocol to Pydantic v2? | Done — one source of truth | — |
+| E6 | Python hardening sweep | ruff + mypy strict + pre-commit + encoding audit | — |
+| E7 | Do we need a Rust parallel dispatcher? | **NO** — GIL is fine for I/O-bound MiniMax calls | [`docs/decisions/phase-E7.md`](docs/decisions/phase-E7.md) |
+
+Full roadmap in [`.rsi/design/EVOLUTION_PLAN.md`](.rsi/design/EVOLUTION_PLAN.md). Stack rationale in [`STACK_EVOLUTION.md`](STACK_EVOLUTION.md).
+
+## Version history
 
 | Version | Change |
 |---|---|
-| v2.0 | Major: Added metrics engine, andon dashboard, calibration tracker, 5-Whys root cause analysis, Heijunka ceremony classification, unified CLI, Claude Code tool-layer hooks, CLAUDE.md agent standard work, comprehensive test suite |
-| v1.11 | Added framework_sync.py |
-| v1.10 | Markdown backlog system |
+| v2.2 | Delegation gate, quality ratchet, parallel DAG, worker trust, declarative rules, Pydantic v2, mypy strict, ruff, pre-commit, Windows hardening, Go hook binary |
+| v2.1 | Quality ratchet (toryo), session brief, parallel delegation, task DAG |
+| v2.0 | Metrics engine, andon dashboard, calibration, 5-Whys, ceremony, unified CLI, Claude Code hooks, CLAUDE.md standard work |
+| v1.11 | `framework_sync.py` |
+| v1.10 | Markdown backlog |
 | v1.9 | Pre-commit session check |
 | v1.8 | Pluggable LanguageChecker |
-| v1.7 | 24h session expiry, PROOF_WRONG_GUIDE.md |
+| v1.7 | 24h session expiry, proof-wrong guide |
 | v1.5 | Cross-platform installers |
 | v1.0 | Git hooks + CI enforcement |
-| v0.1 | Initial implementation |
 
-See [`FRAMEWORK.md`](FRAMEWORK.md) for full documentation.
+## Further reading
+
+- [`CLAUDE.md`](CLAUDE.md) — agent standard work (mandatory for agents)
+- [`FRAMEWORK.md`](FRAMEWORK.md) — complete reference documentation
+- [`TOYOTA_PRINCIPLES.md`](TOYOTA_PRINCIPLES.md) — how each principle maps to code
+- [`PROOF_WRONG_GUIDE.md`](PROOF_WRONG_GUIDE.md) — writing testable hypotheses
+- [`.rsi/DELEGATION_GUIDE.md`](.rsi/DELEGATION_GUIDE.md) — task spec schema, routing, ceremony levels
+- [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md) — cited influences and prior art
