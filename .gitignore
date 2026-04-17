@@ -51,3 +51,10 @@ service-account*.json
 
 # Local-only Claude Code config
 .claude/settings.local.json
+
+# Planning and design specs — local-only, not for public repo
+.rsi/design/
+*_PLAN.md
+*_SPEC.md
+PLAN_*.md
+SPEC_*.md
