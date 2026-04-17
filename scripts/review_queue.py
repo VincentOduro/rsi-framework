@@ -94,7 +94,7 @@ def cmd_list(args):
     for review_file in pending:
         task_id = review_file.stem
         # Extract first line after # Review:
-        content = review_file.read_text()
+        content = review_file.read_text(encoding="utf-8")
         desc = ""
         for line in content.split("\n"):
             if line.startswith("**Task:**"):
@@ -111,12 +111,12 @@ def cmd_show(args):
         for d in [ACCEPTED_DIR, REJECTED_DIR]:
             alt = d / f"{args.task_id}.md"
             if alt.exists():
-                print(alt.read_text())
+                print(alt.read_text(encoding="utf-8"))
                 return
         print(f"Review not found: {args.task_id}", file=sys.stderr)
         sys.exit(1)
 
-    print(review_file.read_text())
+    print(review_file.read_text(encoding="utf-8"))
 
 
 def cmd_accept(args):
@@ -128,9 +128,9 @@ def cmd_accept(args):
 
     # Move to accepted
     dest = ACCEPTED_DIR / f"{args.task_id}.md"
-    content = review_file.read_text()
+    content = review_file.read_text(encoding="utf-8")
     content = content.replace("**Status:** PENDING REVIEW", "**Status:** ACCEPTED")
-    dest.write_text(content)
+    dest.write_text(content, encoding="utf-8")
     review_file.unlink()
 
     _update_delegation_log(args.task_id, "ACCEPTED")
@@ -156,8 +156,8 @@ def cmd_accept(args):
 
         if result_file.exists() and task_file.exists():
             print("Applying from stored result (no API call)...")
-            task = json.loads(task_file.read_text())
-            result = json.loads(result_file.read_text())
+            task = json.loads(task_file.read_text(encoding="utf-8"))
+            result = json.loads(result_file.read_text(encoding="utf-8"))
 
             # Import and call apply_changes directly
             sys.path.insert(0, str(PROJECT_ROOT))
@@ -184,11 +184,11 @@ def cmd_reject(args):
         sys.exit(1)
 
     dest = REJECTED_DIR / f"{args.task_id}.md"
-    content = review_file.read_text()
+    content = review_file.read_text(encoding="utf-8")
     content = content.replace("**Status:** PENDING REVIEW", "**Status:** REJECTED")
     reason = args.reason or "(no reason given)"
     content += f"\n## Rejection Reason\n{reason}\n"
-    dest.write_text(content)
+    dest.write_text(content, encoding="utf-8")
     review_file.unlink()
 
     _update_delegation_log(args.task_id, "REJECTED")
@@ -213,9 +213,9 @@ def cmd_revise(args):
     instruction = args.instruction or "(no instruction given)"
 
     # Update review file with revision note
-    content = review_file.read_text()
+    content = review_file.read_text(encoding="utf-8")
     content += f"\n## Revision Requested\n**Instruction:** {instruction}\n**Date:** {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}\n"
-    review_file.write_text(content)
+    review_file.write_text(content, encoding="utf-8")
 
     # Re-delegate with revision instruction
     task_file = TASKS_DIR / f"{args.task_id}.json"

@@ -115,7 +115,7 @@ def test_write_review(tmp_path):
 
     path = d.write_review(task, result)
     assert path.exists()
-    content = path.read_text()
+    content = path.read_text(encoding="utf-8")
     assert "TASK-005" in content
     assert "PENDING REVIEW" in content
     assert "might fail" in content

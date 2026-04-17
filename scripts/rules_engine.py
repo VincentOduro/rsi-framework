@@ -34,7 +34,7 @@ def _load_rules() -> list[dict]:
     if _rules_cache is not None and current_mtime == _rules_mtime:
         return _rules_cache
 
-    content = RULES_FILE.read_text()
+    content = RULES_FILE.read_text(encoding="utf-8")
     rules = _parse_rules_yaml(content)
     _rules_cache = rules
     _rules_mtime = current_mtime

@@ -45,7 +45,7 @@ def _load_architecture() -> dict:
 
     _architecture_mtime = current_mtime
 
-    content = ARCHITECTURE_FILE.read_text()
+    content = ARCHITECTURE_FILE.read_text(encoding="utf-8")
 
     # Simple YAML-subset parser: extract file_sensitivity patterns
     # Handles the specific structure in architecture.yaml without requiring PyYAML

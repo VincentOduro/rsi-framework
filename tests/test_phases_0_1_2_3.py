@@ -71,7 +71,7 @@ def test_validate_large_file_warning(tmp_path):
 
     # Create a large file
     large_file = tmp_path / "big.py"
-    large_file.write_text("\n".join([f"line_{i} = {i}" for i in range(600)]))
+    large_file.write_text("\n".join([f"line_{i} = {i}" for i in range(600)]), encoding="utf-8")
 
     task = {
         "id": "TASK-BIG",

@@ -42,7 +42,7 @@ def _read_cached(path: Path) -> str | None:
     if key not in _cache:
         if path.exists():
             try:
-                _cache[key] = path.read_text()
+                _cache[key] = path.read_text(encoding="utf-8")
             except OSError:
                 _cache[key] = None
         else:
@@ -82,7 +82,7 @@ def _load_state_data() -> dict:
 
 def _save_state(data: dict) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(data, indent=2))
+    STATE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
     _invalidate_cache(STATE_FILE)
 
 
@@ -276,7 +276,7 @@ def create_override(filepath: str, reason: str, ttl_minutes: int = 60) -> Path:
         "created": datetime.now(UTC).isoformat(),
         "ttl_minutes": ttl_minutes,
     }
-    override_file.write_text(json.dumps(data, indent=2))
+    override_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return override_file
 
 

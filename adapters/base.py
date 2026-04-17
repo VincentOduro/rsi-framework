@@ -300,7 +300,7 @@ class BaseAdapter(ABC):
         for rel_path, content in files.items():
             full_path = self.project_root / rel_path
             full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content)
+            full_path.write_text(content, encoding="utf-8")
             created.append(rel_path)
         return created
 

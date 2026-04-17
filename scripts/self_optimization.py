@@ -47,7 +47,7 @@ PRIORITY_WEIGHTS = {
 
 def _read_file(path: Path) -> str:
     try:
-        return path.read_text()
+        return path.read_text(encoding="utf-8")
     except Exception:
         return ""
 
@@ -58,7 +58,7 @@ def get_feedback_log() -> list[dict]:
     if not feedback_file.exists():
         return []
 
-    content = feedback_file.read_text()
+    content = feedback_file.read_text(encoding="utf-8")
     entries = []
 
     # Very simple parsing — entries are separated by ---
@@ -109,7 +109,7 @@ def get_pending_tasks() -> list[dict]:
     tracker = AGENTS_DIR / "current-task.md"
     if not tracker.exists():
         return []
-    content = tracker.read_text()
+    content = tracker.read_text(encoding="utf-8")
     tasks = []
     for line in content.splitlines():
         stripped = line.strip()
@@ -220,7 +220,7 @@ def document_pattern(
     """Add a pattern to the patterns library."""
     patterns_file = TECHNICAL_DIR / "patterns.md"
     if not patterns_file.exists():
-        patterns_file.write_text("# Patterns Library\n\n")
+        patterns_file.write_text("# Patterns Library\n\n", encoding="utf-8")
 
     entry = f"""
 ## {pattern_name}
@@ -236,7 +236,7 @@ def document_pattern(
 
 ---
 """
-    patterns_file.write_text(patterns_file.read_text() + entry.lstrip())
+    patterns_file.write_text(patterns_file.read_text() + entry.lstrip(), encoding="utf-8")
     print(f"{green('Documented pattern:')} {pattern_name}")
 
 
@@ -292,9 +292,9 @@ def write_priorities_to_tracker(prioritized: list[dict], actions: list[str]) -> 
     """Update current-task.md with prioritization."""
     tracker = AGENTS_DIR / "current-task.md"
     if not tracker.exists():
-        tracker.write_text("# Current Task\n\n## Active Tasks\n\n")
+        tracker.write_text("# Current Task\n\n## Active Tasks\n\n", encoding="utf-8")
 
-    content = tracker.read_text()
+    content = tracker.read_text(encoding="utf-8")
 
     # Remove old prioritization section if present
     if "## Priority Order" in content:
@@ -317,7 +317,7 @@ def write_priorities_to_tracker(prioritized: list[dict], actions: list[str]) -> 
 
     content = content.rstrip() + "\n" + header
 
-    tracker.write_text(content)
+    tracker.write_text(content, encoding="utf-8")
     print(f"{green('Updated current-task.md with priorities')}")
 
 

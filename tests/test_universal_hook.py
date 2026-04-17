@@ -92,7 +92,7 @@ def test_shell_integrator_record_read(tmp_path):
 
     # Create a test file
     test_file = tmp_path / "test.py"
-    test_file.write_text("x = 1")
+    test_file.write_text("x = 1", encoding="utf-8")
 
     # Create memory directory (needed by _record_file_read)
     memory_dir = tmp_path / ".memory"
@@ -125,7 +125,9 @@ def test_shell_integrator_check_edit_allowed_new_file(tmp_path):
 
     # Create a temp state
     state_file = tmp_path / ".preflight_state.json"
-    state_file.write_text('{"read_files": [], "edited_files": [], "sessions": []}')
+    state_file.write_text(
+        '{"read_files": [], "edited_files": [], "sessions": []}', encoding="utf-8"
+    )
 
     original_state = hooks.STATE_FILE
     hooks.STATE_FILE = state_file

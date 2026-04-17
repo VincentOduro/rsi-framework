@@ -50,7 +50,7 @@ def _is_session_expired() -> bool:
     try:
         import json
 
-        data = json.loads(SESSION_FILE.read_text())
+        data = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
         last_session = datetime.fromisoformat(data["timestamp"])
         now = datetime.now(UTC)
         age = now - last_session
@@ -70,7 +70,8 @@ def _touch_session() -> None:
                 "timestamp": datetime.now(UTC).isoformat(),
                 "ttl_hours": RSI_SESSION_TTL_HOURS,
             }
-        )
+        ),
+        encoding="utf-8",
     )
 
 
@@ -134,7 +135,7 @@ def _load_state(*, fresh: bool = False) -> dict:
     try:
         import json
 
-        data = json.loads(STATE_FILE.read_text())
+        data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         data["read_files"] = set(data.get("read_files", []))
         data["edited_files"] = set(data.get("edited_files", []))
         return data
@@ -156,7 +157,7 @@ def _save_state(state: dict) -> None:
     import json
 
     data = {k: list(v) if isinstance(v, set) else v for k, v in state.items()}
-    STATE_FILE.write_text(json.dumps(data, indent=2))
+    STATE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def get_git_diff_files() -> set[str]:

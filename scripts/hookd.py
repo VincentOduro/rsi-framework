@@ -142,7 +142,7 @@ def start_daemon(port: int = DEFAULT_PORT, foreground: bool = True) -> None:
     # Check if already running
     if PID_FILE.exists():
         try:
-            pid = int(PID_FILE.read_text().strip())
+            pid = int(PID_FILE.read_text(encoding="utf-8").strip())
             # Check if process is alive (cross-platform)
             os.kill(pid, 0)
             print(f"Daemon already running (PID {pid}, port {_read_port()})")
@@ -164,8 +164,8 @@ def start_daemon(port: int = DEFAULT_PORT, foreground: bool = True) -> None:
 
     # Write PID and port files
     PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PID_FILE.write_text(str(os.getpid()))
-    PORT_FILE.write_text(str(port))
+    PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    PORT_FILE.write_text(str(port), encoding="utf-8")
 
     print(f"[RSI] Hook daemon started on localhost:{port} (PID {os.getpid()})")
 
@@ -204,7 +204,7 @@ def stop_daemon() -> None:
         return
 
     try:
-        pid = int(PID_FILE.read_text().strip())
+        pid = int(PID_FILE.read_text(encoding="utf-8").strip())
         os.kill(pid, signal.SIGTERM)
         print(f"Daemon stopped (PID {pid})")
     except (OSError, ValueError) as e:
@@ -220,7 +220,7 @@ def daemon_status() -> dict:
         return {"running": False, "reason": "no PID file"}
 
     try:
-        pid = int(PID_FILE.read_text().strip())
+        pid = int(PID_FILE.read_text(encoding="utf-8").strip())
         os.kill(pid, 0)  # Check if alive
         port = _read_port()
         return {"running": True, "pid": pid, "port": port}
@@ -231,7 +231,7 @@ def daemon_status() -> dict:
 def _read_port() -> int:
     if PORT_FILE.exists():
         try:
-            return int(PORT_FILE.read_text().strip())
+            return int(PORT_FILE.read_text(encoding="utf-8").strip())
         except ValueError:
             pass
     return DEFAULT_PORT

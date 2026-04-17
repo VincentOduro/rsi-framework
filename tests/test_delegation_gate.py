@@ -39,7 +39,8 @@ def _setup_hooks(tmp_path):
                 "timestamp": datetime.now(UTC).isoformat(),
                 "ttl_hours": 24,
             }
-        )
+        ),
+        encoding="utf-8",
     )
 
     return h
@@ -56,14 +57,15 @@ def _create_test_file(tmp_path, filepath: str, content: str = "x = 1"):
     """Create a file on disk."""
     full = tmp_path / filepath
     full.parent.mkdir(parents=True, exist_ok=True)
-    full.write_text(content)
+    full.write_text(content, encoding="utf-8")
     return full
 
 
 def _add_accepted_review(h, task_id: str, filepath: str):
     """Create an accepted review record that authorizes a file."""
     review_file = h.ACCEPTED_DIR / f"{task_id}.md"
-    review_file.write_text(f"""# Review: {task_id}
+    review_file.write_text(
+        f"""# Review: {task_id}
 **Status:** ACCEPTED
 
 ## Proposed Changes
@@ -72,7 +74,9 @@ def _add_accepted_review(h, task_id: str, filepath: str):
 ```
 authorized content
 ```
-""")
+""",
+        encoding="utf-8",
+    )
 
 
 def test_gate_blocks_when_minimax_key_set(tmp_path, monkeypatch):

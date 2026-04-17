@@ -191,7 +191,7 @@ def cmd_status(args: list[str]) -> None:
         try:
             from scripts.hooks import _get_session_time_remaining, _is_session_expired
 
-            data = json.loads(session_file.read_text())
+            data = json.loads(session_file.read_text(encoding="utf-8"))
             started = data.get("timestamp", "?")[:19]
             ttl_hours = int(data.get("ttl_hours", 24))
 
@@ -340,7 +340,7 @@ def cmd_override(args: list[str]) -> None:
         import json as _json
 
         for of in sorted(override_dir.glob("*.json")):
-            data = _json.loads(of.read_text())
+            data = _json.loads(of.read_text(encoding="utf-8"))
             print(
                 f"  {data.get('filepath', '?')}  reason: {data.get('reason', '?')}  ttl: {data.get('ttl_minutes', 60)}m"
             )

@@ -119,7 +119,7 @@ def install_claude_hooks(project_root: Path) -> None:
                     ],
                 }
             }
-            claude_settings.write_text(json.dumps(settings, indent=2) + "\n")
+            claude_settings.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
             print(f"  + Claude Code hooks installed at {claude_settings}")
     else:
         print(f"  + Claude Code hooks already exist at {claude_settings}")

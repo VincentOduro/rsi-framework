@@ -231,7 +231,7 @@ def _count_changed_lines() -> int:
 
 def _read_file_safe(filepath: str) -> str:
     try:
-        return (PROJECT_ROOT / filepath).read_text()
+        return (PROJECT_ROOT / filepath).read_text(encoding="utf-8")
     except Exception:
         return ""
 

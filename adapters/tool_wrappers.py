@@ -83,7 +83,8 @@ class RSISession:
                     "timestamp": datetime.now(UTC).isoformat(),
                     "ttl_hours": self.ttl_hours,
                 }
-            )
+            ),
+            encoding="utf-8",
         )
         self._started = True
         self._save_state()
@@ -93,7 +94,7 @@ class RSISession:
         if not self.session_file.exists():
             return True
         try:
-            data = json.loads(self.session_file.read_text())
+            data = json.loads(self.session_file.read_text(encoding="utf-8"))
             ts = datetime.fromisoformat(data["timestamp"])
             ttl = int(data.get("ttl_hours", self.ttl_hours))
             return (datetime.now(UTC) - ts) > timedelta(hours=ttl)
@@ -103,7 +104,7 @@ class RSISession:
     def _load_state(self) -> None:
         if self.state_file.exists():
             try:
-                data = json.loads(self.state_file.read_text())
+                data = json.loads(self.state_file.read_text(encoding="utf-8"))
                 self._files_read = set(data.get("read_files", []))
                 self._files_edited = set(data.get("edited_files", []))
             except (OSError, json.JSONDecodeError):
@@ -116,7 +117,7 @@ class RSISession:
             "edited_files": sorted(self._files_edited),
             "sessions": [],
         }
-        self.state_file.write_text(json.dumps(data, indent=2))
+        self.state_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def _relative(self, filepath: str | Path) -> str:
         try:
@@ -133,7 +134,7 @@ class RSISession:
         if not self.fail_index_file.exists():
             return []
         entries = []
-        for line in self.fail_index_file.read_text().split("\n"):
+        for line in self.fail_index_file.read_text(encoding="utf-8").split("\n"):
             if line.strip().startswith("| FAIL-"):
                 parts = [p.strip() for p in line.split("|") if p.strip()]
                 if len(parts) >= 3:
@@ -150,7 +151,7 @@ class RSISession:
         if not full.exists():
             raise FileNotFoundError(f"File not found: {filepath}")
 
-        content = full.read_text()
+        content = full.read_text(encoding="utf-8")
         rel = self._relative(full)
         self._files_read.add(rel)
         self._save_state()

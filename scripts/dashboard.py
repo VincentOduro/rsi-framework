@@ -45,7 +45,7 @@ def _count_open_defects() -> dict:
     backlog_file = MEMORY_ROOT / "backlog.md"
     if not backlog_file.exists():
         return {}
-    content = backlog_file.read_text()
+    content = backlog_file.read_text(encoding="utf-8")
     import re
 
     counts: dict[str, int] = {}
@@ -76,21 +76,21 @@ def _count_patterns() -> int:
     patterns_file = MEMORY_ROOT / "technical" / "patterns.md"
     if not patterns_file.exists():
         return 0
-    return patterns_file.read_text().count("## ")
+    return patterns_file.read_text(encoding="utf-8").count("## ")
 
 
 def _count_fail_entries() -> int:
     fail_file = MEMORY_ROOT / "technical" / "FAIL-index.md"
     if not fail_file.exists():
         return 0
-    return fail_file.read_text().count("FAIL-")
+    return fail_file.read_text(encoding="utf-8").count("FAIL-")
 
 
 def _count_root_causes() -> dict:
     rca_file = MEMORY_ROOT / "technical" / "root-causes.md"
     if not rca_file.exists():
         return {"total": 0, "open": 0, "closed": 0}
-    content = rca_file.read_text()
+    content = rca_file.read_text(encoding="utf-8")
     total = content.count("## RCA-")
     open_count = content.lower().count("**status:** open")
     return {"total": total, "open": open_count, "closed": total - open_count}

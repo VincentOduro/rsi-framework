@@ -122,7 +122,7 @@ def test_compute_trust_with_data(tmp_path):
         {"task_id": "IMPL-001", "verdict": "ACCEPTED"},
         {"task_id": "IMPL-002", "verdict": "REJECTED"},
     ]
-    log.write_text("\n".join(json.dumps(e) for e in events))
+    log.write_text("\n".join(json.dumps(e) for e in events), encoding="utf-8")
     t.DELEGATIONS_LOG = log
 
     result = t.compute_trust()
@@ -135,7 +135,7 @@ def test_should_auto_accept_insufficient_samples(tmp_path):
     import scripts.trust as t
 
     log = tmp_path / "delegations.jsonl"
-    log.write_text(json.dumps({"task_id": "TEST-001", "verdict": "ACCEPTED"}))
+    log.write_text(json.dumps({"task_id": "TEST-001", "verdict": "ACCEPTED"}), encoding="utf-8")
     t.DELEGATIONS_LOG = log
     t.ARCHITECTURE_FILE = tmp_path / "nonexistent.yaml"
 
@@ -152,7 +152,7 @@ def test_should_auto_accept_below_threshold(tmp_path):
         {"task_id": f"TEST-{i:03d}", "verdict": "ACCEPTED" if i < 4 else "REJECTED"}
         for i in range(10)
     ]
-    log.write_text("\n".join(json.dumps(e) for e in events))
+    log.write_text("\n".join(json.dumps(e) for e in events), encoding="utf-8")
     t.DELEGATIONS_LOG = log
     t.ARCHITECTURE_FILE = tmp_path / "nonexistent.yaml"
 

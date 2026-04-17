@@ -72,7 +72,7 @@ def yellow(msg: str) -> str:
 
 def _read_file(path: Path) -> str:
     try:
-        return path.read_text()
+        return path.read_text(encoding="utf-8")
     except Exception:
         return ""
 
@@ -96,7 +96,7 @@ def log_feedback_to_file(
     """Append self-feedback findings to a feedback log."""
     feedback_file = TECHNICAL_DIR / "feedback-log.md"
     if not feedback_file.exists():
-        feedback_file.write_text("# Self-Feedback Log\n\n")
+        feedback_file.write_text("# Self-Feedback Log\n\n", encoding="utf-8")
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -129,7 +129,7 @@ def log_feedback_to_file(
         entry += "\n"
 
     entry += "\n---\n"
-    feedback_file.write_text(feedback_file.read_text() + entry)
+    feedback_file.write_text(feedback_file.read_text() + entry, encoding="utf-8")
     print(f"{green('Logged to feedback-log.md')}")
 
 
@@ -142,7 +142,7 @@ def review_code(files: list[str]) -> list[dict]:
         if not path.exists():
             continue
 
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
         lines = content.splitlines()
 
         # Check for project-specific patterns (suppressed unless in production code)
@@ -330,12 +330,14 @@ def main():
         print(f"\n{yellow('Unconfirmed issues — creating follow-up tasks:')}")
         tracker = AGENTS_DIR / "current-task.md"
         if not tracker.exists():
-            (AGENTS_DIR / "current-task.md").write_text("# Current Task\n\n## Pending Tasks\n\n")
-        content = tracker.read_text()
+            (AGENTS_DIR / "current-task.md").write_text(
+                "# Current Task\n\n## Pending Tasks\n\n", encoding="utf-8"
+            )
+        content = tracker.read_text(encoding="utf-8")
         for f in unconfirmed:
             entry = f"\n- [ ] REVIEW: {f['description']} (file: {f['file']}:{f['line']})"
             content += entry
-        tracker.write_text(content)
+        tracker.write_text(content, encoding="utf-8")
         print(f"{green('Added follow-up tasks to current-task.md')}")
 
     print(f"\n{green('Self-feedback complete.')}")

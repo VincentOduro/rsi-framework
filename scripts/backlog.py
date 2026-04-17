@@ -51,11 +51,11 @@ def _read_backlog() -> str:
         print(f"{red('ERROR:')} No backlog found at {BACKLOG_FILE}")
         print("Copy MEMORY_TEMPLATE/backlog.md to .memory/backlog.md first.")
         sys.exit(1)
-    return BACKLOG_FILE.read_text()
+    return BACKLOG_FILE.read_text(encoding="utf-8")
 
 
 def _write_backlog(content: str) -> None:
-    BACKLOG_FILE.write_text(content)
+    BACKLOG_FILE.write_text(content, encoding="utf-8")
 
 
 def _parse_tasks(content: str) -> list[dict]:

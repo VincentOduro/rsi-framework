@@ -92,7 +92,7 @@ class PythonChecker(LanguageChecker):
 
     def check_syntax(self, file_path: Path) -> tuple[bool, str]:
         try:
-            ast.parse(file_path.read_text())
+            ast.parse(file_path.read_text(encoding="utf-8"))
             return True, ""
         except SyntaxError as e:
             return False, f"SyntaxError: {e}"
@@ -207,7 +207,7 @@ class ShellChecker(LanguageChecker):
         # 3. Windows fallback: PowerShell syntax check
         if shutil.which("pwsh") or shutil.which("powershell"):
             pwsh_cmd = "pwsh" if shutil.which("pwsh") else "powershell"
-            script_content = file_path.read_text()
+            script_content = file_path.read_text(encoding="utf-8")
             ps_script = f"""
 $script = @'
 {script_content}
@@ -251,7 +251,7 @@ class GenericTextChecker(LanguageChecker):
 
     def check_syntax(self, file_path: Path) -> tuple[bool, str]:
         try:
-            file_path.read_text()
+            file_path.read_text(encoding="utf-8")
             return True, ""
         except Exception as e:
             return False, str(e)
@@ -352,7 +352,7 @@ def find_placeholder_code(file_path: Path) -> list[str]:
     """Scan a file for placeholder patterns. Returns list of offending lines."""
     issues = []
     try:
-        content = file_path.read_text()
+        content = file_path.read_text(encoding="utf-8")
     except Exception:
         return [f"Could not read {file_path}"]
 
@@ -375,7 +375,7 @@ def _example_sanity_check(file_path: Path) -> bool:
 
     Replace this with your own checks. For example:
         def check_no_module_level_db(file_path):
-            content = file_path.read_text()
+            content = file_path.read_text(encoding="utf-8")
             if "create_client(" in content and "def " not in content.split("create_client(")[0].split("\\n")[-1]:
                 print(f"        {red('DB client created at module level')}")
                 return False
@@ -394,7 +394,7 @@ def _example_sanity_check(file_path: Path) -> bool:
 
 def scan_side_effects(file_path: Path) -> list[str]:
     """Look for other files that might be affected by changes to this file."""
-    content = file_path.read_text()
+    content = file_path.read_text(encoding="utf-8")
     findings = []
 
     # Find other files that import from the same package as this file.
@@ -414,7 +414,7 @@ def scan_side_effects(file_path: Path) -> list[str]:
                 if py_file == file_path:
                     continue
                 try:
-                    other_content = py_file.read_text()
+                    other_content = py_file.read_text(encoding="utf-8")
                     for imp in import_patterns:
                         if imp in other_content:
                             findings.append(f"  {imp} also in {py_file.relative_to(PROJECT_ROOT)}")

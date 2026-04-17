@@ -78,7 +78,7 @@ def test_read_records_file(tmp_path):
     # Create a file to read
     test_file = tmp_path / "src" / "main.py"
     test_file.parent.mkdir(parents=True, exist_ok=True)
-    test_file.write_text("x = 1\n")
+    test_file.write_text("x = 1\n", encoding="utf-8")
 
     session.read_file(str(test_file))
     rel = str(test_file.relative_to(tmp_path))
@@ -93,7 +93,7 @@ def test_edit_blocked_without_read(tmp_path):
 
     test_file = tmp_path / "src" / "main.py"
     test_file.parent.mkdir(parents=True, exist_ok=True)
-    test_file.write_text("x = 1\n")
+    test_file.write_text("x = 1\n", encoding="utf-8")
 
     try:
         session.edit_file(str(test_file), "x = 2")
@@ -111,7 +111,7 @@ def test_edit_allowed_after_read(tmp_path):
 
     test_file = tmp_path / "src" / "main.py"
     test_file.parent.mkdir(parents=True, exist_ok=True)
-    test_file.write_text("x = 1\n")
+    test_file.write_text("x = 1\n", encoding="utf-8")
 
     session.read_file(str(test_file))
     result = session.edit_file(str(test_file), "x = 2")
@@ -179,7 +179,7 @@ def test_function_call_handler(tmp_path):
 
     # Create a test file
     test_file = tmp_path / "test.txt"
-    test_file.write_text("hello")
+    test_file.write_text("hello", encoding="utf-8")
 
     handler = make_function_call_handler(session)
 
@@ -276,7 +276,7 @@ def test_adapter_install(tmp_path):
     created = adapter.install()
     assert ".cursorrules" in created
     assert (tmp_path / ".cursorrules").exists()
-    content = (tmp_path / ".cursorrules").read_text()
+    content = (tmp_path / ".cursorrules").read_text(encoding="utf-8")
     assert "Genchi Genbutsu" in content
 
 

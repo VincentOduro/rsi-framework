@@ -136,7 +136,7 @@ def _create_round_template(path: Path) -> None:
 **Status:** IN PROGRESS
 **Last updated:** {datetime.now().strftime("%Y-%m-%d %H:%M")}
 """
-    path.write_text(content.lstrip())
+    path.write_text(content.lstrip(), encoding="utf-8")
 
 
 def _parse_round_num(filename: str) -> int:
@@ -170,14 +170,14 @@ def update_round_log(
 ) -> None:
     """Append an implementation entry to the current round log."""
     round_file = get_current_round()
-    content = round_file.read_text()
+    content = round_file.read_text(encoding="utf-8")
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # Check if round is marked COMPLETE — if so, create new round
     if "**Status:** COMPLETE" in content:
         round_file = create_new_round()
-        content = round_file.read_text()
+        content = round_file.read_text(encoding="utf-8")
 
     # Find the Implementation Log section and append
     marker = "## Implementation Log"
@@ -217,7 +217,7 @@ def update_round_log(
 """
         content = content.rstrip() + section
 
-    round_file.write_text(content)
+    round_file.write_text(content, encoding="utf-8")
     print(f"{green('Updated round log:')} {round_file.name}")
 
 
@@ -231,7 +231,7 @@ def update_task_tracker(
     if not tracker.exists():
         _create_default_tracker(tracker)
 
-    content = tracker.read_text()
+    content = tracker.read_text(encoding="utf-8")
 
     # Find the task entry and update it
     # Format: - [ ] TASK_NAME — ...
@@ -256,7 +256,7 @@ def update_task_tracker(
         updated_marker = f"- [ ] {task}"
         content = content.replace(marker_done, updated_marker, 1)
 
-    tracker.write_text(content)
+    tracker.write_text(content, encoding="utf-8")
     print(f"{green('Updated task tracker')}")
 
 

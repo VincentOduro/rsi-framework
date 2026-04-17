@@ -72,7 +72,7 @@ def _recent_fail_patterns() -> list[str]:
     if not fail_file.exists():
         return []
     items = []
-    for line in fail_file.read_text().split("\n"):
+    for line in fail_file.read_text(encoding="utf-8").split("\n"):
         if line.strip().startswith("| FAIL-"):
             parts = [p.strip() for p in line.split("|") if p.strip()]
             if len(parts) >= 3:
@@ -86,7 +86,7 @@ def _top_patterns() -> list[str]:
     if not pat_file.exists():
         return []
     items = []
-    for line in pat_file.read_text().split("\n"):
+    for line in pat_file.read_text(encoding="utf-8").split("\n"):
         if line.startswith("## ") and line != "## ":
             items.append(line[3:].strip())
     return items
@@ -102,7 +102,7 @@ def _last_session() -> list[str]:
         return []
     latest = rounds[0]
     items = [f"Round: {latest.name}"]
-    content = latest.read_text()
+    content = latest.read_text(encoding="utf-8")
     # Extract status
     for line in content.split("\n"):
         if "**Status:**" in line:
@@ -218,7 +218,7 @@ def main():
 
     if args.save:
         BRIEF_FILE.parent.mkdir(parents=True, exist_ok=True)
-        BRIEF_FILE.write_text(brief)
+        BRIEF_FILE.write_text(brief, encoding="utf-8")
         print(f"\nSaved to {BRIEF_FILE.relative_to(PROJECT_ROOT)}")
 
 

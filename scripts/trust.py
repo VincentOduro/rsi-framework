@@ -54,7 +54,7 @@ def _load_trust_config() -> dict:
             "spot_check_rate": DEFAULT_SPOT_CHECK_RATE,
         }
 
-    content = ARCHITECTURE_FILE.read_text()
+    content = ARCHITECTURE_FILE.read_text(encoding="utf-8")
     config = {}
     in_trust = False
     for line in content.split("\n"):
@@ -102,7 +102,7 @@ def _infer_task_type(event: dict) -> str:
     task_file = PROJECT_ROOT / ".rsi" / "tasks" / f"{task_id}.json"
     if task_file.exists():
         try:
-            spec = json.loads(task_file.read_text())
+            spec = json.loads(task_file.read_text(encoding="utf-8"))
             return spec.get("type", "unknown")
         except (OSError, json.JSONDecodeError):
             pass

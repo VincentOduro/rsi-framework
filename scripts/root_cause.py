@@ -28,14 +28,14 @@ FAIL_INDEX_FILE = MEMORY_ROOT / "technical" / "FAIL-index.md"
 def _ensure_file() -> None:
     ROOT_CAUSES_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not ROOT_CAUSES_FILE.exists():
-        ROOT_CAUSES_FILE.write_text("# Root Cause Analyses (5-Whys)\n\n")
+        ROOT_CAUSES_FILE.write_text("# Root Cause Analyses (5-Whys)\n\n", encoding="utf-8")
 
 
 def _load_analyses() -> list[dict]:
     """Parse existing analyses from root-causes.md."""
     if not ROOT_CAUSES_FILE.exists():
         return []
-    content = ROOT_CAUSES_FILE.read_text()
+    content = ROOT_CAUSES_FILE.read_text(encoding="utf-8")
     analyses = []
     parts = content.split("\n## RCA-")
     for part in parts[1:]:
@@ -90,7 +90,7 @@ def _next_fail_id() -> str:
     """Get next FAIL-ID from the FAIL-index."""
     if not FAIL_INDEX_FILE.exists():
         return "FAIL-001"
-    content = FAIL_INDEX_FILE.read_text()
+    content = FAIL_INDEX_FILE.read_text(encoding="utf-8")
     max_num = 0
     for m in re.finditer(r"FAIL-(\d+)", content):
         max_num = max(max_num, int(m.group(1)))
@@ -158,8 +158,8 @@ def create_analysis(
     entry += "\n---\n"
 
     # Append to file
-    content = ROOT_CAUSES_FILE.read_text()
-    ROOT_CAUSES_FILE.write_text(content.rstrip() + "\n" + entry)
+    content = ROOT_CAUSES_FILE.read_text(encoding="utf-8")
+    ROOT_CAUSES_FILE.write_text(content.rstrip() + "\n" + entry, encoding="utf-8")
 
     # Record in metrics
     try:
@@ -183,13 +183,16 @@ def _add_to_fail_index(fail_id: str, failure_mode: str, preventive_rule: str) ->
     """Add an entry to the FAIL-index."""
     FAIL_INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not FAIL_INDEX_FILE.exists():
-        FAIL_INDEX_FILE.write_text("""# FAIL-index — Behavioral Failure Modes
+        FAIL_INDEX_FILE.write_text(
+            """# FAIL-index — Behavioral Failure Modes
 
 | ID | Failure Mode | Preventive Rule | Times Cited | Last Cited |
 |---|---|---|---|---|
-""")
+""",
+            encoding="utf-8",
+        )
 
-    content = FAIL_INDEX_FILE.read_text()
+    content = FAIL_INDEX_FILE.read_text(encoding="utf-8")
     today = datetime.now().strftime("%Y-%m-%d")
     new_row = f"| {fail_id} | {failure_mode} | {preventive_rule} | 0 | {today} |\n"
 
@@ -199,14 +202,14 @@ def _add_to_fail_index(fail_id: str, failure_mode: str, preventive_rule: str) ->
     else:
         content = content.rstrip() + "\n" + new_row
 
-    FAIL_INDEX_FILE.write_text(content)
+    FAIL_INDEX_FILE.write_text(content, encoding="utf-8")
 
 
 def close_analysis(rca_id: str, verified: bool = False, notes: str = "") -> bool:
     """Mark an analysis as closed (countermeasure implemented)."""
     if not ROOT_CAUSES_FILE.exists():
         return False
-    content = ROOT_CAUSES_FILE.read_text()
+    content = ROOT_CAUSES_FILE.read_text(encoding="utf-8")
     old = "**Status:** open"
     status = "verified" if verified else "closed"
     # Find the right RCA section and update its status
@@ -220,7 +223,7 @@ def close_analysis(rca_id: str, verified: bool = False, notes: str = "") -> bool
                 f"**Status:** {status}\n**Closure notes:** {notes}",
                 1,
             )
-        ROOT_CAUSES_FILE.write_text(content)
+        ROOT_CAUSES_FILE.write_text(content, encoding="utf-8")
         return True
     return False
 

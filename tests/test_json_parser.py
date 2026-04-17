@@ -159,7 +159,7 @@ def test_apply_changes_unescapes_newlines(tmp_path):
         applied = d.apply_changes(task, result)
 
     assert len(applied) > 0
-    content = (tmp_path / "output.py").read_text()
+    content = (tmp_path / "output.py").read_text(encoding="utf-8")
     assert "\n" in content
     assert "line1" in content
     assert "line2" in content
@@ -183,7 +183,7 @@ def test_apply_changes_preserves_real_newlines(tmp_path):
     with patch.object(d, "_run_verify", return_value=True), patch.object(d, "_git_checkpoint"):
         applied = d.apply_changes(task, result)
 
-    content = (tmp_path / "good.py").read_text()
+    content = (tmp_path / "good.py").read_text(encoding="utf-8")
     assert content == "line1\nline2\nline3\n"
 
     d.PROJECT_ROOT = old_root

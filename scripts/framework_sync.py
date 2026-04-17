@@ -62,7 +62,7 @@ def _extract_version_from_framework() -> tuple[str, Path]:
     if not framework_md.exists():
         return "unknown", framework_md
 
-    content = framework_md.read_text()
+    content = framework_md.read_text(encoding="utf-8")
     match = re.search(r"\*\*?Status:\*\*?\s*v?(\d+\.\d+)", content, re.IGNORECASE)
     if match:
         return match.group(1), framework_md
@@ -73,20 +73,20 @@ def _extract_version_from_marker() -> str:
     """Read the recorded framework version from marker file."""
     if not FRAMEWORK_MARKER.exists():
         return "none"
-    return FRAMEWORK_MARKER.read_text().strip()
+    return FRAMEWORK_MARKER.read_text(encoding="utf-8").strip()
 
 
 def _load_feedback() -> str:
     """Load existing feedback if any."""
     if not FEEDBACK_FILE.exists():
         return ""
-    return FEEDBACK_FILE.read_text()
+    return FEEDBACK_FILE.read_text(encoding="utf-8")
 
 
 def _save_feedback(content: str) -> None:
     """Save feedback content."""
     FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    FEEDBACK_FILE.write_text(content)
+    FEEDBACK_FILE.write_text(content, encoding="utf-8")
 
 
 def cmd_status(args) -> None:
@@ -166,7 +166,7 @@ def cmd_pull(args) -> None:
 
     # Update marker
     FRAMEWORK_MARKER.parent.mkdir(parents=True, exist_ok=True)
-    FRAMEWORK_MARKER.write_text(old_version)
+    FRAMEWORK_MARKER.write_text(old_version, encoding="utf-8")
 
     # Find what changed
     changes = _report_changes(old_version)
@@ -192,7 +192,7 @@ def _report_changes(new_version: str) -> list[str]:
 
     changelog = RSI_FRAMEWORK_DIR / "CHANGELOG.md"
     if changelog.exists():
-        content = changelog.read_text()
+        content = changelog.read_text(encoding="utf-8")
         version_section = re.search(
             rf"(?=##?\s+v?{new_version}\b).*?(?=##?\s+v?\d+\.\d+|\Z)", content, re.DOTALL
         )
@@ -220,7 +220,7 @@ def cmd_adopt(args) -> None:
         sys.exit(1)
 
     FRAMEWORK_MARKER.parent.mkdir(parents=True, exist_ok=True)
-    FRAMEWORK_MARKER.write_text(version)
+    FRAMEWORK_MARKER.write_text(version, encoding="utf-8")
 
     today = date.today().isoformat()
     _init_feedback_template()
@@ -246,7 +246,7 @@ def _init_feedback_template() -> None:
 ## Project Info
 
 **Project:** {PROJECT_ROOT.name}
-**Adopted framework version:** {FRAMEWORK_MARKER.read_text().strip() if FRAMEWORK_MARKER.exists() else "unknown"}
+**Adopted framework version:** {FRAMEWORK_MARKER.read_text(encoding="utf-8").strip() if FRAMEWORK_MARKER.exists() else "unknown"}
 **Date:** {date.today().isoformat()}
 
 ---
@@ -295,7 +295,7 @@ def cmd_feedback(args) -> None:
         editor = subprocess.os.environ.get("EDITOR", "nano")
         subprocess.run([editor, str(FEEDBACK_FILE)])
     elif args.show:
-        print(FEEDBACK_FILE.read_text())
+        print(FEEDBACK_FILE.read_text(encoding="utf-8"))
     elif args.reset:
         _init_feedback_template()
         print(f"{green('Reset')} feedback file.")

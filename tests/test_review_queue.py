@@ -26,7 +26,7 @@ def _add_pending(rq, task_id: str, content: str = ""):
     review = rq.PENDING_DIR / f"{task_id}.md"
     if not content:
         content = f"# Review: {task_id}\n**Task:** Test task\n**Status:** PENDING REVIEW\n"
-    review.write_text(content)
+    review.write_text(content, encoding="utf-8")
     return review
 
 
@@ -75,7 +75,7 @@ def test_accept_moves_file(tmp_path):
 
     assert not (rq.PENDING_DIR / "TASK-010.md").exists()
     assert (rq.ACCEPTED_DIR / "TASK-010.md").exists()
-    content = (rq.ACCEPTED_DIR / "TASK-010.md").read_text()
+    content = (rq.ACCEPTED_DIR / "TASK-010.md").read_text(encoding="utf-8")
     assert "ACCEPTED" in content
 
 
@@ -91,7 +91,7 @@ def test_reject_moves_file(tmp_path):
 
     assert not (rq.PENDING_DIR / "TASK-020.md").exists()
     assert (rq.REJECTED_DIR / "TASK-020.md").exists()
-    content = (rq.REJECTED_DIR / "TASK-020.md").read_text()
+    content = (rq.REJECTED_DIR / "TASK-020.md").read_text(encoding="utf-8")
     assert "REJECTED" in content
     assert "Missing edge case" in content
 

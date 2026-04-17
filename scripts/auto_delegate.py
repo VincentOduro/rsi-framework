@@ -89,7 +89,7 @@ def _gather_project_context() -> str:
     # FAIL-index
     fail_file = PROJECT_ROOT / ".memory" / "technical" / "FAIL-index.md"
     if fail_file.exists():
-        content = fail_file.read_text()
+        content = fail_file.read_text(encoding="utf-8")
         fail_lines = [l for l in content.split("\n") if l.strip().startswith("| FAIL-")]
         if fail_lines:
             parts.append("\nKNOWN FAILURE MODES:")
@@ -118,7 +118,7 @@ def _gather_file_contents(filepaths: list[str]) -> dict[str, str]:
         full = PROJECT_ROOT / fp
         if full.exists():
             try:
-                contents[fp] = full.read_text()
+                contents[fp] = full.read_text(encoding="utf-8")
             except Exception:
                 pass
     return contents
@@ -453,7 +453,7 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
         # Save task spec
         TASKS_DIR.mkdir(parents=True, exist_ok=True)
         task_file = TASKS_DIR / f"{task_id}.json"
-        task_file.write_text(json.dumps(task_spec, indent=2))
+        task_file.write_text(json.dumps(task_spec, indent=2), encoding="utf-8")
 
         # Retry loop: worker implements -> overlord reviews
         accepted = False
@@ -568,7 +568,7 @@ def run_auto_delegation(task_description: str, dry_run: bool = False, verbose: b
         for filepath, content in all_changes.items():
             full_path = PROJECT_ROOT / filepath
             full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content)
+            full_path.write_text(content, encoding="utf-8")
             applied_files.append(filepath)
             log(f"    + {filepath}")
     elif all_changes and dry_run:

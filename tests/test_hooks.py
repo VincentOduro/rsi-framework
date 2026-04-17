@@ -25,7 +25,8 @@ def _setup_hooks(tmp_path):
                 "timestamp": datetime.now(UTC).isoformat(),
                 "ttl_hours": 24,
             }
-        )
+        ),
+        encoding="utf-8",
     )
     # Clear per-invocation cache
     h._cache.clear()
@@ -42,7 +43,7 @@ def test_record_file_read(tmp_path):
 def test_record_file_edited(tmp_path):
     h = _setup_hooks(tmp_path)
     h._record_file_edited("src/main.py")
-    state = json.loads(h.STATE_FILE.read_text())
+    state = json.loads(h.STATE_FILE.read_text(encoding="utf-8"))
     assert "src/main.py" in state["edited_files"]
 
 
@@ -51,7 +52,7 @@ def test_pre_edit_blocks_unread_file(tmp_path):
     # Create a file that exists but hasn't been read
     src = tmp_path / "src" / "main.py"
     src.parent.mkdir(parents=True, exist_ok=True)
-    src.write_text("x = 1")
+    src.write_text("x = 1", encoding="utf-8")
 
     try:
         h.handle_pre_edit({"file_path": str(src)})
@@ -67,7 +68,7 @@ def test_pre_edit_allows_read_file(tmp_path, monkeypatch):
     monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
     src = tmp_path / "src" / "main.py"
     src.parent.mkdir(parents=True, exist_ok=True)
-    src.write_text("x = 1")
+    src.write_text("x = 1", encoding="utf-8")
 
     # Record the file as read first
     rel = str(src.relative_to(tmp_path))
@@ -88,13 +89,16 @@ def test_pre_edit_allows_new_file(tmp_path):
 def test_fail_index_entries(tmp_path):
     h = _setup_hooks(tmp_path)
     fail_index = h.FAIL_INDEX_FILE
-    fail_index.write_text("""# FAIL-index
+    fail_index.write_text(
+        """# FAIL-index
 
 | ID | Failure Mode | Preventive Rule | Times Cited | Last Cited |
 |---|---|---|---|---|
 | FAIL-001 | Editing from memory | Read file before editing | 3 | 2026-04-15 |
 | FAIL-002 | Unguarded data access | Check .data before indexing | 1 | 2026-04-14 |
-""")
+""",
+        encoding="utf-8",
+    )
     entries = h._get_relevant_fail_entries("src/main.py")
     # FAIL-001 matches (contains "edit"), FAIL-002 doesn't match any relevance keywords
     assert len(entries) >= 1
