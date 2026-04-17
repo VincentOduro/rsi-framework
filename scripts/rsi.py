@@ -24,9 +24,14 @@ Usage:
     python3 scripts/rsi.py status             # Quick status
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
@@ -35,42 +40,27 @@ SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 def _run(script: str, args: list[str] | None = None, allow_failure: bool = False) -> int:
     """Run a Python script. Exits on failure unless allow_failure=True.
 
-    Captures stderr to print on failure for better error visibility.
+    Streams child stdout/stderr directly so wrapped commands stay visible.
     """
     cmd = [sys.executable, str(SCRIPTS_DIR / script)] + (args or [])
-    result = subprocess.run(
-        cmd,
-        cwd=PROJECT_ROOT,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if result.returncode != 0:
-        if result.stderr:
-            print(result.stderr.strip(), file=sys.stderr)
-        if not allow_failure:
-            sys.exit(result.returncode)
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(PROJECT_ROOT) + (os.pathsep + existing if existing else "")
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
+    if result.returncode != 0 and not allow_failure:
+        sys.exit(result.returncode)
     return result.returncode
 
 
 def _run_bash(script: str, args: list[str] | None = None, allow_failure: bool = False) -> int:
     """Run a bash script. Exits on failure unless allow_failure=True.
 
-    Captures stderr to print on failure for better error visibility.
+    Streams child stdout/stderr directly so wrapped commands stay visible.
     """
     cmd = ["bash", str(SCRIPTS_DIR / script)] + (args or [])
-    result = subprocess.run(
-        cmd,
-        cwd=PROJECT_ROOT,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if result.returncode != 0:
-        if result.stderr:
-            print(result.stderr.strip(), file=sys.stderr)
-        if not allow_failure:
-            sys.exit(result.returncode)
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+    if result.returncode != 0 and not allow_failure:
+        sys.exit(result.returncode)
     return result.returncode
 
 
