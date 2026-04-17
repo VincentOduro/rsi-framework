@@ -392,7 +392,7 @@ COMMANDS = {
 }
 
 
-def main():
+def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
         from scripts.colors import bold, cyan
         print(bold("\nRSI Framework — Unified CLI\n"))

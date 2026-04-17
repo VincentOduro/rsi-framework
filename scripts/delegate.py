@@ -23,6 +23,15 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Ensure project root is importable so `engine.protocol` resolves when this
+# script is executed as `python scripts/delegate.py` rather than `-m`.
+_PROJECT_ROOT_BOOTSTRAP = Path(__file__).parent.parent.resolve()
+if str(_PROJECT_ROOT_BOOTSTRAP) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT_BOOTSTRAP))
+
+from engine.protocol import TaskSpec, WorkerResult
+from pydantic import ValidationError
+
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 TASKS_DIR = PROJECT_ROOT / ".rsi" / "tasks"
 REVIEWS_DIR = PROJECT_ROOT / ".memory" / "reviews"
@@ -107,20 +116,26 @@ def validate_task(task: dict) -> list[str]:
     """Validate task spec against architecture rules. Returns list of issues."""
     from scripts.classify_file import classify_file
 
-    issues = []
+    issues: list[str] = []
 
-    # Required fields
-    for field in ["id", "description", "instruction", "files_to_modify"]:
-        if not task.get(field):
-            issues.append(f"Missing required field: {field}")
-
-    # Acceptance criteria
-    if not task.get("acceptance_criteria"):
-        issues.append("acceptance_criteria must have at least one entry")
-
-    # Proof-wrong
-    if not task.get("proof_wrong"):
-        issues.append("proof_wrong is required")
+    # Schema validation via Pydantic TaskSpec — catches required fields,
+    # non-empty strings, non-empty list[str] constraints in one pass.
+    try:
+        TaskSpec.model_validate(task)
+    except ValidationError as exc:
+        for err in exc.errors():
+            loc = ".".join(str(p) for p in err["loc"])
+            msg = err["msg"]
+            # Preserve legacy error strings for missing top-level fields so
+            # existing tests and downstream consumers still match on them.
+            if err["type"] == "missing" and loc in {"id", "description", "instruction", "files_to_modify", "acceptance_criteria", "proof_wrong"}:
+                issues.append(f"Missing required field: {loc}")
+            elif loc == "acceptance_criteria":
+                issues.append("acceptance_criteria must have at least one entry")
+            elif loc == "proof_wrong":
+                issues.append("proof_wrong is required")
+            else:
+                issues.append(f"Schema: {loc}: {msg}")
 
     # File sensitivity check
     for filepath in task.get("files_to_modify", []):
@@ -567,14 +582,22 @@ def save_result(task_id: str, result: dict) -> Path:
 
 
 def load_result(task_id: str) -> dict | None:
-    """Load stored worker result. Returns None if not found."""
+    """Load stored worker result, validated through WorkerResult. Returns None if not found."""
     result_path = RESULTS_DIR / f"{task_id}.json"
     if not result_path.exists():
         return None
     try:
-        return json.loads(result_path.read_text())
+        raw = json.loads(result_path.read_text())
     except (json.JSONDecodeError, IOError):
         return None
+    try:
+        # Parse through WorkerResult so downstream callers can rely on
+        # typed fields (changes/tokens_used/etc.) having correct types.
+        # extra='allow' keeps any unknown keys intact.
+        return WorkerResult.model_validate(raw).model_dump()
+    except ValidationError:
+        # Fall back to raw dict so legacy result files still load.
+        return raw
 
 
 def write_review(task: dict, result: dict) -> Path:
