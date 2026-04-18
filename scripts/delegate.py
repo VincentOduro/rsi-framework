@@ -830,6 +830,26 @@ def _run_verify(files: list[str]) -> bool:
         return False
 
 
+def _run_api_check(spec_path: Path, task: dict) -> tuple[bool, str]:
+    """Pre-dispatch API verification. Skips research/audit task types.
+
+    Shells out to scripts/api_check.py. Returns (ok, combined_output).
+    """
+    if task.get("task_type") in {"research", "audit"}:
+        return True, f"api-check skipped (task_type={task.get('task_type')})"
+
+    import subprocess as sp
+
+    result = sp.run(
+        [sys.executable, str(PROJECT_ROOT / "scripts" / "api_check.py"), str(spec_path)],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return result.returncode == 0, (result.stdout or "") + (result.stderr or "")
+
+
 def _git_checkpoint(task_id: str, files: list[str]) -> None:
     """Create a checkpoint commit for accepted changes."""
     import subprocess as sp
@@ -974,6 +994,19 @@ def delegate_parallel(task_files: list[str], max_workers: int = 10) -> list[dict
 def _execute_single(task: dict) -> dict:
     """Execute a single task (for parallel dispatch)."""
     task_id = task.get("id", "?")
+
+    if os.environ.get("RSI_SKIP_API_CHECK") != "1":
+        spec_path = TASKS_DIR / f"{task_id}.json"
+        if spec_path.exists():
+            ok, api_output = _run_api_check(spec_path, task)
+            if not ok:
+                return {
+                    "task_id": task_id,
+                    "status": "failed",
+                    "error": "api_check_failed",
+                    "output": api_output,
+                }
+
     result = call_worker(task)
     if result.get("error"):
         return {"task_id": task_id, "status": "failed", "error": result["error"]}
@@ -1156,6 +1189,17 @@ def cmd_delegate(args):
     print(f"Delegating: {task['id']} — {task['description']}")
     print(f"Files to modify: {', '.join(task.get('files_to_modify', []))}")
 
+    # Pre-dispatch API verification
+    if not getattr(args, "no_api_check", False):
+        ok, api_output = _run_api_check(task_file, task)
+        if not ok:
+            print(api_output, file=sys.stderr)
+            print(
+                "Pre-dispatch API check failed — fix the spec or rerun with --no-api-check",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
     # Call worker
     revision = args.revise if hasattr(args, "revise") and args.revise else ""
     result = call_worker(task, revision)
@@ -1238,6 +1282,11 @@ def main():
         type=int,
         default=10,
         help="Max parallel workers (default: 10; lower if MiniMax rate-limits)",
+    )
+    parser.add_argument(
+        "--no-api-check",
+        action="store_true",
+        help="Skip pre-dispatch API verification (emergency override)",
     )
 
     args = parser.parse_args()
