@@ -61,6 +61,7 @@ python3 scripts/rsi.py ci             # CI gate
 ```json
 {
     "id": "TASK-NNN",
+    "task_type": "code",
     "description": "Short description",
     "instruction": "Detailed instruction with exact import paths",
     "files_to_read": ["src/relevant.py"],
@@ -70,6 +71,43 @@ python3 scripts/rsi.py ci             # CI gate
     "constraints": []
 }
 ```
+
+### Task types
+
+| `task_type` | Purpose | API check | Output | Review tier |
+|---|---|---|---|---|
+| `code` (default) | Code/test/refactor work | enforced | edited files | per size, see below |
+| `research` | Curate data, fact-find, judgment calls | skipped | report.md in `.rsi/research/` | single overlord pass; human-judgment criteria allowed |
+| `audit` | Read-only analysis of existing code | skipped | findings.md in `.rsi/audits/` | single overlord pass |
+
+If `task_type` is omitted, treat as `code`.
+
+### Review tiers (code tasks)
+
+| Code size | Review |
+|---|---|
+| < 50 lines, 1 file | Combined single-pass (overlord reviews implementation + spec compliance together) |
+| 50-200 lines, ≤ 3 files | Two-stage (spec-compliance + code-quality) |
+| > 200 lines or > 3 files | Two-stage + adversarial pass |
+
+Rationale: feedback from prior sessions showed two-stage review on trivial
+tasks is overkill. Match review depth to defect risk, not to ritual.
+
+## API Verification (pre-dispatch)
+
+Before delegating any `code` task, run:
+
+```bash
+python3 scripts/api_check.py .rsi/tasks/TASK-NNN.json
+```
+
+This walks `instruction` text, extracts referenced symbols (e.g.
+`broker.max_position_risk_pct`), resolves them via `importlib` +
+`inspect.signature()`, and fails if any are missing or have wrong kwargs.
+Catches plan-time API hallucinations before MiniMax burns time on
+non-existent calls.
+
+Skip for `research` and `audit` task types.
 
 ## Anti-Patterns
 

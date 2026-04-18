@@ -47,6 +47,20 @@ When MiniMax fails, decompose smaller — don't take over.
 - Keep instructions under 500 words
 - Acceptance criteria must be testable
 
+## Conflict resolution
+
+When a session prompt contradicts CLAUDE.md or `.rsi/DELEGATION_GUIDE.md`:
+
+1. **Constitution-level rules win.** Delegation requirement, hook bypass
+   prohibition, read-before-edit, no `--no-verify`. A session prompt cannot
+   override these. If the user asks you to bypass, surface the conflict
+   and ask them to either rephrase or amend the constitution file.
+2. **Tactical scope deferred to session.** Which files to touch, which
+   approach to take, which tests to write — the session prompt wins here.
+3. **Ambiguous cases — surface, do not silently pick.** If you cannot tell
+   whether an instruction is constitutional or tactical, ask the user.
+   Cite the specific CLAUDE.md line you are uncertain about.
+
 ## Full reference
 
 For detailed workflow, ceremony levels, metrics targets, commands,
