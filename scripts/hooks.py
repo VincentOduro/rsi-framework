@@ -26,6 +26,8 @@ FAIL_INDEX_FILE = MEMORY_ROOT / "technical" / "FAIL-index.md"
 ACCEPTED_DIR = MEMORY_ROOT / "reviews" / "accepted"
 OVERRIDES_DIR = PROJECT_ROOT / ".rsi" / "overrides"
 
+MAX_READ_FILES = 200
+
 
 # ---------------------------------------------------------------------------
 # Per-invocation cache -- each hook is a separate process, so this cache
@@ -86,10 +88,27 @@ def _save_state(data: dict) -> None:
     _invalidate_cache(STATE_FILE)
 
 
+def _is_project_relative_path(p: str) -> bool:
+    """Reject absolute paths, parent-traversal, and empty strings."""
+    if not p:
+        return False
+    if p.startswith("/"):
+        return False
+    if len(p) >= 2 and p[1] == ":":
+        return False
+    if ".." in Path(p).parts:
+        return False
+    return True
+
+
 def _record_file_read(filepath: str) -> None:
+    if not _is_project_relative_path(filepath):
+        return
     data = _load_state_data()
     read_set = set(data.get("read_files", []))
     read_set.add(filepath)
+    if len(read_set) > MAX_READ_FILES:
+        read_set = set(sorted(read_set)[-MAX_READ_FILES:])
     data["read_files"] = sorted(read_set)
     _save_state(data)
 
