@@ -25,6 +25,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 STATE_FILE = PROJECT_ROOT / ".memory" / ".preflight_state.json"
 SESSION_FILE = PROJECT_ROOT / ".memory" / ".session_timestamp"
 RSI_SESSION_TTL_HOURS = int(os.environ.get("RSI_SESSION_TTL_HOURS", 24))
+MAX_READ_FILES = 200
 
 
 def green(msg: str) -> str:
@@ -138,6 +139,7 @@ def _load_state(*, fresh: bool = False) -> dict:
         data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         data["read_files"] = set(data.get("read_files", []))
         data["edited_files"] = set(data.get("edited_files", []))
+        data.setdefault("sessions", [])
         return data
     except (OSError, json.JSONDecodeError):
         tracked = get_git_tracked_files()
@@ -197,8 +199,28 @@ def get_git_tracked_files() -> set[str]:
     return {line.strip() for line in result.stdout.strip().split("\n") if line.strip()}
 
 
+def _is_project_relative_path(p: str) -> bool:
+    """Reject absolute paths, parent-traversal, and empty strings."""
+    if not p:
+        return False
+    if p.startswith("/"):
+        return False
+    if len(p) >= 2 and p[1] == ":":
+        return False
+    if ".." in Path(p).parts:
+        return False
+    return True
+
+
 def cmd_record(files: list[str], *, fresh: bool = False) -> None:
     """Record that files were read (simulates "read in this session")."""
+    rejected = [f for f in files if not _is_project_relative_path(f)]
+    for f in rejected:
+        print(f"{yellow('Skipped non-project path:')} {f}")
+    files = [f for f in files if _is_project_relative_path(f)]
+    if not files:
+        print(f"{yellow('No project-relative paths to record.')}")
+        return
     state = _load_state(fresh=fresh)
     session_id = datetime.now().strftime("%Y-%m-%d-%H%M")
     state["sessions"].append(
@@ -210,6 +232,8 @@ def cmd_record(files: list[str], *, fresh: bool = False) -> None:
     )
     for f in files:
         state["read_files"].add(f)
+    if len(state["read_files"]) > MAX_READ_FILES:
+        state["read_files"] = set(sorted(state["read_files"])[-MAX_READ_FILES:])
     _save_state(state)
     for f in files:
         print(f"{green('Recorded as read:')} {f}")

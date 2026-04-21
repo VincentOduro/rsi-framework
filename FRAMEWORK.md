@@ -2,7 +2,7 @@
 
 A lightweight meta-process for software projects that turns every implementation into a learning opportunity, and every learning opportunity into the next implementation's improvement.
 
-**Status:** v1.13 | **Language:** Agnostic | **Stack:** Python + Bash + Git
+**Status:** v1.14 | **Language:** Agnostic | **Stack:** Python + Bash + Git
 
 ---
 
@@ -391,6 +391,7 @@ The framework is language-agnostic. For a different stack:
 | 2026-04-15 | v1.11 | Added framework_sync.py (file-copy update detection, self-update with backup, feedback capture). | Framework self-update + feedback mechanism |
 | 2026-04-15 | v1.12 | Added multi-model support: universal_hook.py + adapters/ for opencode/MiniMax. Fixed ShellChecker cross-platform (shellcheck → bash → PowerShell fallback). Fixed rsi.py _run/_run_bash to capture stderr on failure. | Claude-only hooks; ShellChecker required bash; rsi.py error messages not shown |
 | 2026-04-15 | v1.13 | Added session expiry warning (1 hour before TTL). Session status now shows time remaining. handle_pre_edit warns when session expiring soon. | Session TTL only blocked when expired, not warned when approaching expiry |
+| 2026-04-21 | v1.14 | Memory hygiene: `_record_file_read` (hooks.py) + `cmd_record` (preflight_check.py) reject absolute/parent paths and cap `read_files` at `MAX_READ_FILES=200`. `_load_state` tolerates missing `sessions` key (hooks.py/preflight_check.py schema mismatch). checkpoint.sh marks round COMPLETE via portable sed+mktemp+mv so post_implementation.py rotates to next round. FAIL-009 added: MiniMax truncation pattern for guarded mid-file edits >100 lines — overlord overrides instead of re-delegating. | .preflight_state.json grew to 10KB with pytest temp paths (55 absolute paths); rounds never rotated (checkpoint.sh didn't set COMPLETE); MiniMax worker truncated 5/8 mid-file edits — systemic, not tunable via spec clarity |
 
 ## Using FAIL-index
 

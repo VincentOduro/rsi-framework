@@ -58,6 +58,13 @@ if ls .memory/rounds/round-*.md 1> /dev/null 2>&1; then
             echo "**Files changed:**"
             git diff --name-only HEAD 2>/dev/null | sed 's/^/  - /'
         } >> "$LATEST"
+        # Mark round COMPLETE so post_implementation.py rotates next session.
+        # mktemp+mv for Git-Bash-on-Windows portability (sed -i is unreliable there).
+        if command -v sed >/dev/null 2>&1; then
+            TMP_ROUND="$(mktemp 2>/dev/null || echo "$LATEST.tmp.$$")"
+            sed 's/\*\*Status:\*\* IN PROGRESS/**Status:** COMPLETE/g' "$LATEST" > "$TMP_ROUND" && mv "$TMP_ROUND" "$LATEST"
+            echo "  Round marked COMPLETE."
+        fi
         echo "  Round log updated."
     fi
 fi

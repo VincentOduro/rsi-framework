@@ -12,6 +12,7 @@ Cite by ID before making risky claims. Format: `See FAIL-XXX`.
 | FAIL-006 | Forgetting to update memory after changes | Commit must include memory update or warning. |
 | FAIL-007 | Implementing without understanding the full context | Read the entire file before modifying it. |
 | FAIL-008 | Fixing one thing and breaking another | Run full test suite after every change. |
+| FAIL-009 | MiniMax worker truncates full-file outputs when edit is mid-file in 100+ line files (seen: E6-001/002/003, MEM-002, MEM-005) | For guarded files >100 lines where the edit is NOT at top or bottom: overlord overrides + direct-edits instead of delegating. Do not re-delegate — pattern is systemic. |
 
 ---
 

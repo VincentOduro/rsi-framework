@@ -1,6 +1,6 @@
 # Round 001 — TEMPLATE
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 **Started:** YYYY-MM-DD
 
 ---
@@ -71,5 +71,5 @@
 
 ## Status
 
-**Status:** IN PROGRESS / COMPLETE
+**Status:** COMPLETE / COMPLETE
 **Last updated:** YYYY-MM-DD

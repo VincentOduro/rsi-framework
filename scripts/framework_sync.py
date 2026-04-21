@@ -16,28 +16,57 @@ Prerequisites:
 """
 
 import argparse
+import os
 import re
 import shutil
+import subprocess
 import sys
 from datetime import date, datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
-RSI_FRAMEWORK_DIR = PROJECT_ROOT / "rsi-framework"
 
-# Detect if this script IS the framework (running from within rsi-framework/)
-# In that case, PROJECT_ROOT == framework root, not parent of rsi-framework/
-if not RSI_FRAMEWORK_DIR.exists():
-    # We're running from within the framework itself
+
+def _resolve_framework_dir() -> tuple[Path, bool]:
+    """Resolve the authoritative framework source directory.
+
+    Priority:
+      1. $RSI_FRAMEWORK_DIR env var (explicit override)
+      2. PROJECT_ROOT/rsi-framework/ (legacy convention, v1.11-v1.13)
+      3. PROJECT_ROOT/.rsi-source/ (bootstrap.sh convention, v1.14+)
+      4. PROJECT_ROOT itself if FRAMEWORK.md is present (self-mode — we ARE the framework)
+
+    Returns (path, is_self_mode). When is_self_mode=True the project itself
+    is the framework source; pull/check operations become no-ops or show-only.
+    """
+    override = os.environ.get("RSI_FRAMEWORK_DIR")
+    if override:
+        candidate = Path(override).resolve()
+        if (candidate / "FRAMEWORK.md").exists():
+            return candidate, candidate == PROJECT_ROOT
+
+    for name in ("rsi-framework", ".rsi-source"):
+        candidate = PROJECT_ROOT / name
+        if (candidate / "FRAMEWORK.md").exists():
+            return candidate, False
+
     if (PROJECT_ROOT / "FRAMEWORK.md").exists():
-        RSI_FRAMEWORK_DIR = PROJECT_ROOT
-    else:
-        # Neither rsi-framework/ subdir nor FRAMEWORK.md exists — framework not found
-        pass
+        return PROJECT_ROOT, True
+
+    # Framework not found — return legacy path so existing ERROR messages still fire.
+    return PROJECT_ROOT / "rsi-framework", False
+
+
+RSI_FRAMEWORK_DIR, IS_SELF_MODE = _resolve_framework_dir()
 
 FRAMEWORK_MARKER = PROJECT_ROOT / ".memory" / ".framework_version"
 FEEDBACK_FILE = PROJECT_ROOT / ".memory" / "framework-feedback.md"
 FRAMEWORK_TEMPLATE_DIR = RSI_FRAMEWORK_DIR / "MEMORY_TEMPLATE"
+
+# Items copied from source → project during --pull.
+# Directories are copied recursively (dirs_exist_ok=True). Files are overwritten.
+SYNC_DIRS = ("scripts", "engine", "MEMORY_TEMPLATE", "adapters", "docs")
+SYNC_FILES = ("FRAMEWORK.md", "CLAUDE.md", "PROOF_WRONG_GUIDE.md", "TOYOTA_PRINCIPLES.md", "STACK_EVOLUTION.md")
 
 
 def green(msg: str) -> str:
@@ -89,11 +118,57 @@ def _save_feedback(content: str) -> None:
     FEEDBACK_FILE.write_text(content, encoding="utf-8")
 
 
+def _git_pull_source() -> bool:
+    """If RSI_FRAMEWORK_DIR is a git clone, pull latest. Returns True on success."""
+    if IS_SELF_MODE:
+        return False
+    if not (RSI_FRAMEWORK_DIR / ".git").exists():
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(RSI_FRAMEWORK_DIR), "pull", "--ff-only"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            print(f"  {green('Source updated via git pull:')} {result.stdout.strip().splitlines()[-1] if result.stdout else 'already current'}")
+            return True
+        print(f"  {yellow('git pull failed:')} {result.stderr.strip()}")
+        return False
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"  {yellow('git pull error:')} {exc}")
+        return False
+
+
+def _copy_source_to_project() -> list[str]:
+    """Copy SYNC_DIRS + SYNC_FILES from RSI_FRAMEWORK_DIR into PROJECT_ROOT.
+
+    Skips in self-mode (source IS project). Returns list of copied paths (relative).
+    """
+    if IS_SELF_MODE:
+        return []
+    copied = []
+    for d in SYNC_DIRS:
+        src = RSI_FRAMEWORK_DIR / d
+        if src.exists() and src.is_dir():
+            dst = PROJECT_ROOT / d
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+            copied.append(f"{d}/")
+    for f in SYNC_FILES:
+        src = RSI_FRAMEWORK_DIR / f
+        if src.exists() and src.is_file():
+            dst = PROJECT_ROOT / f
+            shutil.copy2(src, dst)
+            copied.append(f)
+    return copied
+
+
 def cmd_status(args) -> None:
     """Show framework version status."""
-    if not RSI_FRAMEWORK_DIR.exists():
-        print(f"{red('ERROR:')} No rsi-framework/ found at {RSI_FRAMEWORK_DIR}")
-        print("Copy the framework into your project first, then run --adopt.")
+    if not (RSI_FRAMEWORK_DIR / "FRAMEWORK.md").exists():
+        print(f"{red('ERROR:')} No framework source found at {RSI_FRAMEWORK_DIR}")
+        print("Expected one of: rsi-framework/, .rsi-source/, or $RSI_FRAMEWORK_DIR override.")
         sys.exit(1)
 
     local_version, _ = _extract_version_from_framework()
@@ -106,12 +181,19 @@ def cmd_status(args) -> None:
     print(f"  Local framework version:  v{local_version}")
     print(f"  Recorded adoption version: v{recorded_version}")
     print(f"  Feedback submissions:      {feedback_count}")
-    print(f"  Framework path:            {RSI_FRAMEWORK_DIR.relative_to(PROJECT_ROOT)}")
-    print(f"  Feedback file:            {FEEDBACK_FILE.relative_to(PROJECT_ROOT)}")
+    try:
+        source_display = RSI_FRAMEWORK_DIR.relative_to(PROJECT_ROOT)
+    except ValueError:
+        source_display = RSI_FRAMEWORK_DIR
+    print(f"  Framework source:          {source_display}")
+    print(f"  Mode:                      {'self (project IS framework)' if IS_SELF_MODE else 'child (project COPIES framework)'}")
+    print(f"  Feedback file:             {FEEDBACK_FILE.relative_to(PROJECT_ROOT)}")
 
-    if recorded_version == "none":
+    if IS_SELF_MODE:
+        print(f"\n  {cyan('INFO:')} Self-mode: no pull possible. Version shown is authoritative.")
+    elif recorded_version == "none":
         print(f"\n  {yellow('WARNING:')} Run --adopt to record your framework version.")
-    elif local_version != recorded_version and recorded_version != "none":
+    elif local_version != recorded_version:
         print(f"\n  {cyan('INFO:')} Update available: v{recorded_version} -> v{local_version}")
         print("  Run --pull to update.")
     else:
@@ -122,13 +204,21 @@ def cmd_status(args) -> None:
 
 def cmd_check(args) -> None:
     """Check if framework update is available."""
-    if not RSI_FRAMEWORK_DIR.exists():
-        print(f"{red('ERROR:')} No rsi-framework/ found. Copy it first, then run --adopt.")
+    if not (RSI_FRAMEWORK_DIR / "FRAMEWORK.md").exists():
+        print(f"{red('ERROR:')} No framework source found at {RSI_FRAMEWORK_DIR}")
         sys.exit(1)
+
+    if IS_SELF_MODE:
+        print(f"{cyan('SELF-MODE')} — this project IS the framework; --check is a no-op.")
+        sys.exit(0)
 
     if not FRAMEWORK_MARKER.exists():
         print(f"{yellow('WARNING:')} No adoption marker found. Run --adopt first.")
         sys.exit(1)
+
+    # Optionally refresh source from upstream before comparing.
+    if getattr(args, "refresh", False):
+        _git_pull_source()
 
     local_version, _ = _extract_version_from_framework()
     recorded_version = _extract_version_from_marker()
@@ -143,47 +233,59 @@ def cmd_check(args) -> None:
 
 
 def cmd_pull(args) -> None:
-    """Pull latest framework (backup + replace)."""
-    if not RSI_FRAMEWORK_DIR.exists():
-        print(f"{red('ERROR:')} No rsi-framework/ found.")
+    """Pull latest framework: git-pull source, copy files into project, bump marker."""
+    if not (RSI_FRAMEWORK_DIR / "FRAMEWORK.md").exists():
+        print(f"{red('ERROR:')} No framework source found at {RSI_FRAMEWORK_DIR}")
         sys.exit(1)
 
-    old_version, _ = _extract_version_from_framework()
-    recorded_version = _extract_version_from_marker()
-
-    if old_version == recorded_version:
-        print(f"{green('Already on latest version:')} v{old_version}")
+    if IS_SELF_MODE:
+        print(f"{cyan('SELF-MODE')} — this project IS the framework; nothing to pull.")
         return
 
-    # Backup
+    # 1. Refresh source from upstream git (if applicable).
+    print(f"{cyan('[1/4]')} Refreshing source clone...")
+    _git_pull_source()
+
+    new_version, _ = _extract_version_from_framework()
+    recorded_version = _extract_version_from_marker()
+
+    # 2. Backup current project scripts/ + engine/ (NOT the source dir).
+    print(f"{cyan('[2/4]')} Backing up current project framework files...")
     backup_dir = PROJECT_ROOT / ".memory" / "framework-backup"
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = backup_dir / f"v{old_version}-{timestamp}"
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_path = backup_dir / f"v{recorded_version}-{timestamp}"
+    backup_path.mkdir(parents=True, exist_ok=True)
+    for d in SYNC_DIRS:
+        src = PROJECT_ROOT / d
+        if src.exists() and src.is_dir():
+            shutil.copytree(src, backup_path / d, dirs_exist_ok=True)
+    for f in SYNC_FILES:
+        src = PROJECT_ROOT / f
+        if src.exists() and src.is_file():
+            shutil.copy2(src, backup_path / f)
+    print(f"  Backup: {backup_path.relative_to(PROJECT_ROOT)}")
 
-    print(f"Backing up current framework to {backup_path.relative_to(PROJECT_ROOT)}...")
-    shutil.copytree(RSI_FRAMEWORK_DIR, backup_path, dirs_exist_ok=True)
+    # 3. Copy source → project.
+    print(f"{cyan('[3/4]')} Copying source into project...")
+    copied = _copy_source_to_project()
+    for item in copied:
+        print(f"  + {item}")
 
-    # Update marker
+    # 4. Update version marker.
+    print(f"{cyan('[4/4]')} Updating version marker...")
     FRAMEWORK_MARKER.parent.mkdir(parents=True, exist_ok=True)
-    FRAMEWORK_MARKER.write_text(old_version, encoding="utf-8")
+    FRAMEWORK_MARKER.write_text(new_version, encoding="utf-8")
 
-    # Find what changed
-    changes = _report_changes(old_version)
+    changes = _report_changes(new_version)
 
-    print(f"\n{green('BACKUP COMPLETE')}")
-    print(f"  Backup location: {backup_path.relative_to(PROJECT_ROOT)}")
+    print(f"\n{green('PULL COMPLETE')} — v{recorded_version} -> v{new_version}")
+    print(f"  Backup:  {backup_path.relative_to(PROJECT_ROOT)}")
+    print(f"  Copied:  {len(copied)} item(s)")
     if changes:
         print(f"\n  {cyan('CHANGES:')}")
         for change in changes:
             print(f"    - {change}")
-    print(f"\n  Updated version marker: v{old_version}")
-    print("\n  To verify the update:")
-    print("    python3 scripts/self_verify.py --changed-only")
-    print("\n  To record this update in memory:")
-    print(
-        f"    python3 scripts/post_implementation.py --task 'Updated RSI framework' --succeeded 'Pulled v{old_version} -> v{old_version}' --proof-wrong 'If backup is corrupted, framework files may be unrecoverable'"
-    )
+    print("\n  Verify: python3 scripts/self_verify.py --changed-only")
 
 
 def _report_changes(new_version: str) -> list[str]:
@@ -349,6 +451,11 @@ def main():
     parser.add_argument("--check", action="store_true", help="Check if update available")
     parser.add_argument(
         "--pull", action="store_true", help="Pull latest framework (backup + update)"
+    )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="With --check or --pull: git-pull the source clone before comparing/copying.",
     )
     parser.add_argument(
         "--adopt", action="store_true", help="Record framework adoption (first time)"
