@@ -356,8 +356,11 @@ def handle_pre_edit(tool_input: dict) -> None:
             print(msg)
         if not allowed:
             sys.exit(1)
-    except ImportError:
-        # Fallback: hardcoded rules (backward compatibility)
+    except (ImportError, FileNotFoundError) as exc:
+        # Fallback: hardcoded rules (rules_engine missing or .rsi/rules.yaml absent).
+        # RulesFileMissing is a FileNotFoundError subclass — fail-closed into the
+        # fallback below rather than silently allowing everything.
+        print(f"[RSI] rules_engine unavailable ({type(exc).__name__}), using hardcoded fallback")
         if context["session_expired"]:
             print("[RSI] Session expired. Run 'python3 scripts/rsi.py init'.")
             sys.exit(1)

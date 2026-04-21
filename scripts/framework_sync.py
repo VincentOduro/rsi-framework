@@ -68,6 +68,11 @@ FRAMEWORK_TEMPLATE_DIR = RSI_FRAMEWORK_DIR / "MEMORY_TEMPLATE"
 SYNC_DIRS = ("scripts", "engine", "MEMORY_TEMPLATE", "adapters", "docs")
 SYNC_FILES = ("FRAMEWORK.md", "CLAUDE.md", "PROOF_WRONG_GUIDE.md", "TOYOTA_PRINCIPLES.md", "STACK_EVOLUTION.md")
 
+# Framework-shipped files inside .rsi/. These are framework config, NOT project state.
+# .rsi/tasks/ and .rsi/overrides/ are project-specific and never synced.
+# .rsi/cache/ is runtime state and never synced.
+SYNC_RSI_FILES = ("rules.yaml", "architecture.yaml", "DELEGATION_GUIDE.md")
+
 
 def green(msg: str) -> str:
     return f"\033[92m{msg}\033[0m"
@@ -96,6 +101,37 @@ def _extract_version_from_framework() -> tuple[str, Path]:
     if match:
         return match.group(1), framework_md
     return "unknown", framework_md
+
+
+def _extract_version_from_readme() -> str:
+    """Extract version from local rsi-framework/README.md Status line.
+
+    Returns 'unknown' if README missing or Status line not matching the
+    same `v?(\\d+\\.\\d+)` pattern used for FRAMEWORK.md.
+    """
+    readme_md = RSI_FRAMEWORK_DIR / "README.md"
+    if not readme_md.exists():
+        return "unknown"
+    content = readme_md.read_text(encoding="utf-8")
+    match = re.search(r"\*\*?Status:\*\*?\s*v?(\d+\.\d+)", content, re.IGNORECASE)
+    return match.group(1) if match else "unknown"
+
+
+def _check_version_consistency() -> tuple[bool, str, str]:
+    """Compare FRAMEWORK.md Status vs README.md Status.
+
+    Returns (is_consistent, framework_version, readme_version). When the
+    two diverge, framework_sync reads from FRAMEWORK.md — projects then
+    see stale numbers against the README users expect. This is exactly
+    the bug that caused the v1.x vs v2.x reconciliation.
+    """
+    fw_version, _ = _extract_version_from_framework()
+    readme_version = _extract_version_from_readme()
+    # "unknown" on one side is not a divergence we can flag meaningfully
+    # (e.g. project without README). Only flag when both parsed and differ.
+    if fw_version == "unknown" or readme_version == "unknown":
+        return True, fw_version, readme_version
+    return fw_version == readme_version, fw_version, readme_version
 
 
 def _extract_version_from_marker() -> str:
@@ -161,6 +197,15 @@ def _copy_source_to_project() -> list[str]:
             dst = PROJECT_ROOT / f
             shutil.copy2(src, dst)
             copied.append(f)
+    # .rsi/ framework files: rules.yaml, architecture.yaml, DELEGATION_GUIDE.md.
+    # Leave .rsi/tasks/, .rsi/overrides/, .rsi/cache/ untouched (project state).
+    rsi_dst = PROJECT_ROOT / ".rsi"
+    rsi_dst.mkdir(exist_ok=True)
+    for f in SYNC_RSI_FILES:
+        src = RSI_FRAMEWORK_DIR / ".rsi" / f
+        if src.exists() and src.is_file():
+            shutil.copy2(src, rsi_dst / f)
+            copied.append(f".rsi/{f}")
     return copied
 
 
@@ -174,6 +219,7 @@ def cmd_status(args) -> None:
     local_version, _ = _extract_version_from_framework()
     recorded_version = _extract_version_from_marker()
     feedback_count = _load_feedback().count("## Feedback Entry")
+    consistent, fw_ver, readme_ver = _check_version_consistency()
 
     print(f"\n{'=' * 60}")
     print("RSI FRAMEWORK STATUS")
@@ -181,6 +227,11 @@ def cmd_status(args) -> None:
     print(f"  Local framework version:  v{local_version}")
     print(f"  Recorded adoption version: v{recorded_version}")
     print(f"  Feedback submissions:      {feedback_count}")
+    if not consistent:
+        print(
+            f"  {red('DRIFT:')} FRAMEWORK.md=v{fw_ver} vs README.md=v{readme_ver} "
+            "— reconcile before shipping (framework_sync reads FRAMEWORK.md)"
+        )
     try:
         source_display = RSI_FRAMEWORK_DIR.relative_to(PROJECT_ROOT)
     except ValueError:
@@ -207,6 +258,13 @@ def cmd_check(args) -> None:
     if not (RSI_FRAMEWORK_DIR / "FRAMEWORK.md").exists():
         print(f"{red('ERROR:')} No framework source found at {RSI_FRAMEWORK_DIR}")
         sys.exit(1)
+
+    consistent, fw_ver, readme_ver = _check_version_consistency()
+    if not consistent:
+        print(
+            f"{red('DRIFT:')} FRAMEWORK.md=v{fw_ver} vs README.md=v{readme_ver}. "
+            "Reconcile both Status lines before pulling — sync uses FRAMEWORK.md."
+        )
 
     if IS_SELF_MODE:
         print(f"{cyan('SELF-MODE')} — this project IS the framework; --check is a no-op.")
@@ -263,6 +321,14 @@ def cmd_pull(args) -> None:
         src = PROJECT_ROOT / f
         if src.exists() and src.is_file():
             shutil.copy2(src, backup_path / f)
+    # Back up the framework-scoped .rsi files individually so restore can rebuild
+    # them without touching .rsi/tasks/ or .rsi/overrides/.
+    rsi_backup = backup_path / ".rsi"
+    rsi_backup.mkdir(exist_ok=True)
+    for f in SYNC_RSI_FILES:
+        src = PROJECT_ROOT / ".rsi" / f
+        if src.exists() and src.is_file():
+            shutil.copy2(src, rsi_backup / f)
     print(f"  Backup: {backup_path.relative_to(PROJECT_ROOT)}")
 
     # 3. Copy source → project.

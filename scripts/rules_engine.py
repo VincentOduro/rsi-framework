@@ -23,12 +23,31 @@ _rules_cache: list[dict] | None = None
 _rules_mtime: float = 0.0
 
 
+class RulesFileMissing(FileNotFoundError):
+    """Raised when .rsi/rules.yaml is missing.
+
+    Missing rules file is a framework misconfig, not a valid empty-rules state.
+    Previously _load_rules silently returned [] on missing file, causing all
+    hooks.py gates to pass (fail-open — dangerous). Now we raise so callers
+    can fall back to hardcoded rules or abort.
+    """
+
+
 def _load_rules() -> list[dict]:
-    """Load rules from .rsi/rules.yaml. Cached by mtime."""
+    """Load rules from .rsi/rules.yaml. Cached by mtime.
+
+    Raises RulesFileMissing if the rules file doesn't exist — fail-closed
+    behavior. Callers (hooks.py) catch this as FileNotFoundError and fall
+    back to hardcoded rules.
+    """
     global _rules_cache, _rules_mtime
 
     if not RULES_FILE.exists():
-        return []
+        raise RulesFileMissing(
+            f"Rules file missing: {RULES_FILE}. "
+            "Run `python3 scripts/framework_sync.py --pull` to install framework rules, "
+            "or copy `.rsi/rules.yaml` from your framework source directory."
+        )
 
     current_mtime = RULES_FILE.stat().st_mtime
     if _rules_cache is not None and current_mtime == _rules_mtime:
