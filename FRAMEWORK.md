@@ -2,7 +2,7 @@
 
 A lightweight meta-process for software projects that turns every implementation into a learning opportunity, and every learning opportunity into the next implementation's improvement.
 
-**Status:** v1.14 | **Language:** Agnostic | **Stack:** Python + Bash + Git
+**Status:** v2.3 | **Language:** Agnostic | **Stack:** Python + Bash + Git
 
 ---
 
@@ -149,8 +149,7 @@ rsi-framework/
 │   │   └── patterns.md           # Reusable code patterns
 │   └── agents/                   # Task state
 │       ├── current-task.md      # Active tasks (legacy)
-│       └── backlog.md           # Standard task backlog (v1.10+)
-├── scripts/                      # Workflow automation (agnostic)
+│       └── backlog.md           # Standard task backlog├── scripts/                      # Workflow automation (agnostic)
 │   ├── __init__.py              # Package marker
 │   ├── backlog.py               # Backlog manager (add/list/update/show/stats)
 │   ├── framework_sync.py        # Framework self-update + feedback manager
@@ -374,24 +373,12 @@ The framework is language-agnostic. For a different stack:
 
 ## Framework Evolution Log
 
+See [README.md "Evolution Path"](README.md) for the authoritative version history.
+This file tracks only the most recent release for quick reference.
+
 | Date | Version | Change | What it fixed |
 |---|---|---|---|
-| 2026-04-14 | v0.1 | Initial implementation | — |
-| 2026-04-14 | v1.0 | Added enforcement (git hooks + CI), A→B→C chaining, explicit pattern flag, optional template sections | — |
-| 2026-04-14 | v1.1 | Pre-flight check (files must be read before editing), mandatory "what could prove this wrong?" in Module A | Framework bypassed in practice; discipline required enforcement |
-| 2026-04-14 | v1.2 | Installed hooks, fixed PROJECT_ROOT bugs, updated sanity checks, GitHub Actions workflow, priority prefixes in task names, auto-seeded pre-flight state | Hooks not installed; CI broken; self_verify checked wrong things |
-| 2026-04-14 | v1.3 | **ALL PROCESSES MANDATORY**: Removed proportional ceremony, commit-msg hook blocks (no bypass), placeholder scan blocks, A→B→C always chains automatically, self-verify and tests always block on failure | None of the principles are optional |
-| 2026-04-14 | v1.4 | System-wide hook installation via `~/.git_template/hooks/`. Run `setup.sh` once per machine — hooks then work automatically for every clone. | Hook installation required manual step per project |
-| 2026-04-15 | v1.5 | Added `setup.py` (pure Python cross-platform), `setup.ps1` (PowerShell), fixed `readlink -f` → `os.path.realpath()` in hooks | P0 fixes for Windows compatibility |
-| 2026-04-15 | v1.6 | Fixed hardcoded `/home/ajeem/wandering_codex` paths in self_feedback.py, self_optimization.py, post_implementation.py | 3 of 5 scripts had hardcoded paths |
-| 2026-04-15 | v1.7 | Added 24h session expiry (RSI_SESSION_TTL_HOURS), --fresh flag to skip auto-seeding. Added PROOF_WRONG_GUIDE.md with examples by change type. Moved MagicMock-specific checks to PROJECT_SPECIFIC_CHECKS. | P1-1, P1-3, P2-1, P2-2, P2-3 |
-| 2026-04-15 | v1.8 | Added pluggable LanguageChecker architecture to self_verify.py. Added FAIL-index usage guide to FRAMEWORK.md. Expanded framework self-tests. | P3-1, P3-2, P3-3 |
-| 2026-04-15 | v1.9 | Added pre-commit Stage 0 session check (`--require-session`). Added `--start` to preflight_check.py. Documented Module B as interactive-only (CI uses non-interactive path). | Session enforcement gap from v1.8 proposal |
-| 2026-04-15 | v1.10 | Added markdown-based backlog system (`backlog.md` + `scripts/backlog.py`) with standard task format. Supports add/list/show/update/stats. | Consistent task tracking across all projects |
-| 2026-04-15 | v1.11 | Added framework_sync.py (file-copy update detection, self-update with backup, feedback capture). | Framework self-update + feedback mechanism |
-| 2026-04-15 | v1.12 | Added multi-model support: universal_hook.py + adapters/ for opencode/MiniMax. Fixed ShellChecker cross-platform (shellcheck → bash → PowerShell fallback). Fixed rsi.py _run/_run_bash to capture stderr on failure. | Claude-only hooks; ShellChecker required bash; rsi.py error messages not shown |
-| 2026-04-15 | v1.13 | Added session expiry warning (1 hour before TTL). Session status now shows time remaining. handle_pre_edit warns when session expiring soon. | Session TTL only blocked when expired, not warned when approaching expiry |
-| 2026-04-21 | v1.14 | Memory hygiene: `_record_file_read` (hooks.py) + `cmd_record` (preflight_check.py) reject absolute/parent paths and cap `read_files` at `MAX_READ_FILES=200`. `_load_state` tolerates missing `sessions` key (hooks.py/preflight_check.py schema mismatch). checkpoint.sh marks round COMPLETE via portable sed+mktemp+mv so post_implementation.py rotates to next round. FAIL-009 added: MiniMax truncation pattern for guarded mid-file edits >100 lines — overlord overrides instead of re-delegating. | .preflight_state.json grew to 10KB with pytest temp paths (55 absolute paths); rounds never rotated (checkpoint.sh didn't set COMPLETE); MiniMax worker truncated 5/8 mid-file edits — systemic, not tunable via spec clarity |
+| 2026-04-21 | v2.3 | Memory hygiene (hooks.py + preflight_check.py reject absolute paths, cap `read_files` at 200). Round rotation (checkpoint.sh marks round COMPLETE via portable sed+mktemp+mv). FAIL-009 documents MiniMax truncation pattern for guarded mid-file edits >100 lines. framework_sync.py recognizes `.rsi-source/` convention; `cmd_pull` actually copies source→project; `--refresh` flag git-pulls source first. | `.preflight_state.json` grew unbounded with pytest temp paths; rounds never rotated; framework_sync `--pull` was a no-op in child-mode; FRAMEWORK.md Status tracked a parallel version scheme and caused "already current" false positives |
 
 ## Using FAIL-index
 
@@ -432,8 +419,7 @@ Example new entry:
 
 ---
 
-## Backlog System (v1.10+)
-
+## Backlog System
 The framework includes a lightweight, markdown-based backlog system for consistent task tracking across all projects.
 
 ### Core Files
@@ -478,7 +464,7 @@ python3 scripts/backlog.py stats
 
 ### Relationship to current-task.md
 
-- `backlog.md` (v1.10+) is the **primary** task tracker
+- `backlog.md` is the **primary** task tracker
 - `current-task.md` is the **legacy** per-session task tracker (Module C output)
 - New projects should use `backlog.md`; existing projects can migrate tasks
 
