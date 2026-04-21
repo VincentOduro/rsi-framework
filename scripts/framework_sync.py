@@ -32,8 +32,8 @@ def _resolve_framework_dir() -> tuple[Path, bool]:
 
     Priority:
       1. $RSI_FRAMEWORK_DIR env var (explicit override)
-      2. PROJECT_ROOT/rsi-framework/ (legacy convention, v1.11-v1.13)
-      3. PROJECT_ROOT/.rsi-source/ (bootstrap.sh convention, v1.14+)
+      2. PROJECT_ROOT/rsi-framework/ (legacy subdir convention)
+      3. PROJECT_ROOT/.rsi-source/ (bootstrap.sh convention, current)
       4. PROJECT_ROOT itself if FRAMEWORK.md is present (self-mode — we ARE the framework)
 
     Returns (path, is_self_mode). When is_self_mode=True the project itself
@@ -410,7 +410,7 @@ def cmd_feedback(args) -> None:
 def cmd_help(args) -> None:
     """Show detailed help."""
     print("""
-RSI Framework Sync — v1.0
+RSI Framework Sync
 
 Adoption (first time):
     python3 scripts/framework_sync.py --adopt
