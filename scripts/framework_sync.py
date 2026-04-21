@@ -68,6 +68,11 @@ FRAMEWORK_TEMPLATE_DIR = RSI_FRAMEWORK_DIR / "MEMORY_TEMPLATE"
 SYNC_DIRS = ("scripts", "engine", "MEMORY_TEMPLATE", "adapters", "docs")
 SYNC_FILES = ("FRAMEWORK.md", "CLAUDE.md", "PROOF_WRONG_GUIDE.md", "TOYOTA_PRINCIPLES.md", "STACK_EVOLUTION.md")
 
+# Framework-shipped files inside .rsi/. These are framework config, NOT project state.
+# .rsi/tasks/ and .rsi/overrides/ are project-specific and never synced.
+# .rsi/cache/ is runtime state and never synced.
+SYNC_RSI_FILES = ("rules.yaml", "architecture.yaml", "DELEGATION_GUIDE.md")
+
 
 def green(msg: str) -> str:
     return f"\033[92m{msg}\033[0m"
@@ -192,6 +197,15 @@ def _copy_source_to_project() -> list[str]:
             dst = PROJECT_ROOT / f
             shutil.copy2(src, dst)
             copied.append(f)
+    # .rsi/ framework files: rules.yaml, architecture.yaml, DELEGATION_GUIDE.md.
+    # Leave .rsi/tasks/, .rsi/overrides/, .rsi/cache/ untouched (project state).
+    rsi_dst = PROJECT_ROOT / ".rsi"
+    rsi_dst.mkdir(exist_ok=True)
+    for f in SYNC_RSI_FILES:
+        src = RSI_FRAMEWORK_DIR / ".rsi" / f
+        if src.exists() and src.is_file():
+            shutil.copy2(src, rsi_dst / f)
+            copied.append(f".rsi/{f}")
     return copied
 
 
@@ -307,6 +321,14 @@ def cmd_pull(args) -> None:
         src = PROJECT_ROOT / f
         if src.exists() and src.is_file():
             shutil.copy2(src, backup_path / f)
+    # Back up the framework-scoped .rsi files individually so restore can rebuild
+    # them without touching .rsi/tasks/ or .rsi/overrides/.
+    rsi_backup = backup_path / ".rsi"
+    rsi_backup.mkdir(exist_ok=True)
+    for f in SYNC_RSI_FILES:
+        src = PROJECT_ROOT / ".rsi" / f
+        if src.exists() and src.is_file():
+            shutil.copy2(src, rsi_backup / f)
     print(f"  Backup: {backup_path.relative_to(PROJECT_ROOT)}")
 
     # 3. Copy source → project.
