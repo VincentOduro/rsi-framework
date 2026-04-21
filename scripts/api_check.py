@@ -409,10 +409,14 @@ def main() -> int:
     problems = verify_references(refs, known)
 
     if args.json:
+        try:
+            spec_display = str(spec_path.relative_to(PROJECT_ROOT))
+        except ValueError:
+            spec_display = str(spec_path)
         print(
             json.dumps(
                 {
-                    "spec": str(spec_path.relative_to(PROJECT_ROOT)),
+                    "spec": spec_display,
                     "refs_checked": len(refs),
                     "problems": problems,
                 },
