@@ -2,7 +2,7 @@
 
 A disciplined meta-process that turns every implementation into a learning opportunity — built on Toyota Production System principles. Drops into any AI-assisted project so the agent builds under measured quality discipline and keeps improving itself.
 
-**Status:** v2.3 • **Runtime:** Python 3.11+ • **Deps:** pydantic, openai • **Tested on:** Windows 11, macOS, Linux, WSL2
+**Status:** v2.4 • **Runtime:** Python 3.11+ • **Deps:** pydantic, openai • **Tested on:** Windows 11, macOS, Linux, WSL2
 
 ---
 
@@ -267,6 +267,7 @@ Full roadmap in [`.rsi/design/EVOLUTION_PLAN.md`](.rsi/design/EVOLUTION_PLAN.md)
 
 | Version | Change |
 |---|---|
+| v2.4 | Version-drift guard in `framework_sync.py`: `--status`/`--check` print red `DRIFT:` warning when FRAMEWORK.md and README.md Status lines diverge |
 | v2.3 | Memory hygiene (preflight cap + absolute-path filter), round rotation fix (checkpoint.sh marks COMPLETE), framework_sync.py recognizes `.rsi-source/` + actually copies files on `--pull`, FAIL-009 (MiniMax truncation pattern on guarded mid-file edits >100 lines) |
 | v2.2 | Delegation gate, quality ratchet, parallel DAG, worker trust, declarative rules, Pydantic v2, mypy strict, ruff, pre-commit, Windows hardening, Go hook binary |
 | v2.1 | Quality ratchet (toryo), session brief, parallel delegation, task DAG |

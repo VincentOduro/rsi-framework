@@ -2,7 +2,7 @@
 
 A lightweight meta-process for software projects that turns every implementation into a learning opportunity, and every learning opportunity into the next implementation's improvement.
 
-**Status:** v2.3 | **Language:** Agnostic | **Stack:** Python + Bash + Git
+**Status:** v2.4 | **Language:** Agnostic | **Stack:** Python + Bash + Git
 
 ---
 
@@ -378,6 +378,7 @@ This file tracks only the most recent release for quick reference.
 
 | Date | Version | Change | What it fixed |
 |---|---|---|---|
+| 2026-04-21 | v2.4 | framework_sync.py version-drift guard: `--status` and `--check` compare FRAMEWORK.md Status vs README.md Status and print a red `DRIFT:` warning when they diverge. | Scheme drift was invisible — FRAMEWORK.md at v1.13 while README at v2.2 for weeks, causing downstream projects to see "already current" against a stale number. Guard surfaces divergence at every status call. |
 | 2026-04-21 | v2.3 | Memory hygiene (hooks.py + preflight_check.py reject absolute paths, cap `read_files` at 200). Round rotation (checkpoint.sh marks round COMPLETE via portable sed+mktemp+mv). FAIL-009 documents MiniMax truncation pattern for guarded mid-file edits >100 lines. framework_sync.py recognizes `.rsi-source/` convention; `cmd_pull` actually copies source→project; `--refresh` flag git-pulls source first. | `.preflight_state.json` grew unbounded with pytest temp paths; rounds never rotated; framework_sync `--pull` was a no-op in child-mode; FRAMEWORK.md Status tracked a parallel version scheme and caused "already current" false positives |
 
 ## Using FAIL-index
