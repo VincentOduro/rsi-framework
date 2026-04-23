@@ -53,52 +53,107 @@ def _ensure_dirs():
     DELEGATIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
 
 
-_worker_config_cache: dict | None = None
+_worker_config_cache: dict[str, dict] | None = None
+_active_worker: str | None = None  # Set by --worker flag in main()
+_round_robin_index: int = 0  # Global counter for round-robin routing
 
 
-def _load_worker_config() -> dict:
-    """Load worker API config from architecture.yaml. Cached after first call."""
+def _load_worker_config(worker_name: str | None = None) -> dict:
+    """Load worker API config from architecture.yaml.
+
+    If worker_name is given, looks up architecture.yaml `workers.<name>` section.
+    Falls back to `worker_api` section for backward compat.
+    Result is cached per worker_name.
+    """
     global _worker_config_cache
-    if _worker_config_cache is not None:
-        return _worker_config_cache
+    cache_key = worker_name or "__default__"
+    if _worker_config_cache is not None and cache_key in _worker_config_cache:
+        return _worker_config_cache[cache_key]
+
+    _minimax_defaults = {
+        "provider": "minimax",
+        "base_url": "https://api.minimaxi.chat/v1",
+        "model": "MiniMax-M2.7",
+        "max_tokens": 8192,
+        "timeout_seconds": 120,
+        "env_key": "MINIMAX_API_KEY",
+    }
 
     if not ARCHITECTURE_FILE.exists():
-        return {
-            "provider": "minimax",
-            "base_url": os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.chat/v1"),
-            "model": os.environ.get("RSI_WORKER_MODEL", "MiniMax-M2.7"),
-            "max_tokens": 8192,
-            "timeout_seconds": 120,
-            "env_key": "MINIMAX_API_KEY",
-        }
+        config = dict(_minimax_defaults)
+        config["base_url"] = os.environ.get("RSI_WORKER_BASE_URL", config["base_url"])
+        config["model"] = os.environ.get("RSI_WORKER_MODEL", config["model"])
+        if _worker_config_cache is None:
+            _worker_config_cache = {}
+        _worker_config_cache[cache_key] = config
+        return config
 
-    # Simple extraction from YAML
     content = ARCHITECTURE_FILE.read_text(encoding="utf-8")
-    config = {}
-    in_worker_api = False
+
+    if worker_name:
+        config = _parse_named_worker(content, worker_name)
+    else:
+        config = _parse_worker_api_section(content)
+
+    # Env vars override
+    config["base_url"] = os.environ.get("RSI_WORKER_BASE_URL", config.get("base_url", "https://api.minimaxi.chat/v1"))
+    config["model"] = os.environ.get("RSI_WORKER_MODEL", config.get("model", "MiniMax-M2.7"))
+    config.setdefault("max_tokens", "8192")
+    config.setdefault("timeout_seconds", "120")
+    config.setdefault("env_key", "MINIMAX_API_KEY")
+
+    if _worker_config_cache is None:
+        _worker_config_cache = {}
+    _worker_config_cache[cache_key] = config
+    return config
+
+
+def _parse_worker_api_section(content: str) -> dict:
+    """Extract the flat `worker_api:` section from architecture.yaml."""
+    config: dict = {}
+    in_section = False
     for line in content.split("\n"):
         stripped = line.strip()
         if stripped == "worker_api:":
-            in_worker_api = True
+            in_section = True
             continue
-        if in_worker_api and ":" in stripped and not stripped.startswith("#"):
-            if not stripped.startswith("-") and line.startswith("  "):
+        if in_section and ":" in stripped and not stripped.startswith("#"):
+            if not stripped.startswith("-") and line.startswith("  ") and not line.startswith("   "):
                 key, _, val = stripped.partition(":")
                 val = val.strip().strip('"').strip("'")
                 if val:
                     config[key.strip()] = val
             elif not line.startswith("  "):
-                in_worker_api = False
+                in_section = False
+    return config
 
-    # Env vars override
-    config["base_url"] = os.environ.get(
-        "MINIMAX_BASE_URL", config.get("base_url", "https://api.minimaxi.chat/v1")
-    )
-    config["model"] = os.environ.get("RSI_WORKER_MODEL", config.get("model", "MiniMax-M2.7"))
-    config.setdefault("max_tokens", "8192")
-    config.setdefault("timeout_seconds", "120")
-    config.setdefault("env_key", "MINIMAX_API_KEY")
-    _worker_config_cache = config
+
+def _parse_named_worker(content: str, name: str) -> dict:
+    """Extract a named entry from the `workers:` section of architecture.yaml."""
+    config: dict = {}
+    in_workers = False
+    in_target = False
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if stripped == "workers:":
+            in_workers = True
+            continue
+        if in_workers:
+            if line.startswith("  ") and not line.startswith("   ") and stripped.rstrip(":") == name:
+                in_target = True
+                continue
+            if in_target:
+                if line.startswith("    ") and ":" in stripped and not stripped.startswith("#"):
+                    key, _, val = stripped.partition(":")
+                    val = val.strip().strip('"').strip("'")
+                    if val:
+                        config[key.strip()] = val
+                elif line.startswith("  ") and not line.startswith("    ") or (not line.startswith(" ") and line.strip()):
+                    in_target = False
+            if not line.startswith("  ") and line.strip() and not line.startswith(" "):
+                in_workers = False
+    if not config:
+        raise ValueError(f"Worker '{name}' not found in architecture.yaml workers section.")
     return config
 
 
@@ -109,6 +164,80 @@ def _get_api_key(config: dict) -> str:
         print(f"ERROR: {env_key} environment variable not set.", file=sys.stderr)
         sys.exit(1)
     return key
+
+
+# ---------------------------------------------------------------------------
+# Worker routing
+# ---------------------------------------------------------------------------
+
+
+def _get_available_workers() -> list[str]:
+    """Return names of configured workers whose API keys are present in env."""
+    if not ARCHITECTURE_FILE.exists():
+        return []
+    content = ARCHITECTURE_FILE.read_text(encoding="utf-8")
+    available = []
+    in_workers = False
+    current_name: str | None = None
+    current_env_key: str | None = None
+
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if stripped == "workers:":
+            in_workers = True
+            continue
+        if not in_workers:
+            continue
+        # Top-level workers section ends when indentation drops
+        if line and not line.startswith(" "):
+            in_workers = False
+            if current_name and current_env_key and os.environ.get(current_env_key, ""):
+                available.append(current_name)
+            break
+        # Named worker entry (2-space indent, ends with colon)
+        if line.startswith("  ") and not line.startswith("   ") and stripped.endswith(":"):
+            if current_name and current_env_key and os.environ.get(current_env_key, ""):
+                available.append(current_name)
+            current_name = stripped.rstrip(":")
+            current_env_key = None
+        # env_key field (4-space indent)
+        if line.startswith("    ") and stripped.startswith("env_key:"):
+            _, _, val = stripped.partition(":")
+            current_env_key = val.strip().strip('"').strip("'")
+
+    # Flush last entry
+    if current_name and current_env_key and os.environ.get(current_env_key, ""):
+        available.append(current_name)
+
+    return available
+
+
+def _resolve_worker(task: dict) -> str | None:
+    """Pick the worker for a task.
+
+    Priority:
+    1. task["worker"] — explicit routing decision by Claude
+    2. _active_worker  — --worker CLI flag (single-task override)
+    3. Round-robin across available workers (auto-distribution)
+    4. None — fall back to worker_api default
+    """
+    global _round_robin_index
+
+    # Explicit per-task routing (Claude's decision)
+    if task.get("worker"):
+        return task["worker"]
+
+    # CLI override
+    if _active_worker:
+        return _active_worker
+
+    # Round-robin across available workers
+    available = _get_available_workers()
+    if not available:
+        return None
+    worker = available[_round_robin_index % len(available)]
+    _round_robin_index += 1
+    return worker
 
 
 # ---------------------------------------------------------------------------
@@ -567,8 +696,11 @@ def _repair_truncated_json(fragment: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 
-def call_worker(task: dict, revision_instruction: str = "") -> dict:
+def call_worker(task: dict, revision_instruction: str = "", worker_name: str | None = None) -> dict:
     """Call the worker model API and return parsed response.
+
+    worker_name: explicit worker to use (overrides _active_worker and task["worker"]).
+                 If None, _resolve_worker(task) is called to determine routing.
 
     Returns:
         {
@@ -578,10 +710,12 @@ def call_worker(task: dict, revision_instruction: str = "") -> dict:
             "raw_response": "...",
             "tokens_used": N,
             "latency_seconds": N.N,
+            "worker": "name of worker used",
             "error": "..." (if failed)
         }
     """
-    config = _load_worker_config()
+    resolved = worker_name if worker_name is not None else _resolve_worker(task)
+    config = _load_worker_config(resolved)
     api_key = _get_api_key(config)
 
     prompt = build_worker_prompt(task)
@@ -666,12 +800,14 @@ def call_worker(task: dict, revision_instruction: str = "") -> dict:
             "raw_response": raw[:2000],
             "tokens_used": tokens,
             "latency_seconds": latency,
+            "worker": config.get("provider", resolved),
         }
 
     except Exception as e:
         return {
             "error": f"API call failed: {type(e).__name__}: {e}",
             "latency_seconds": round(time.time() - start, 1),
+            "worker": config.get("provider", resolved) if "config" in dir() else resolved,
         }
 
 
@@ -885,7 +1021,7 @@ def _git_revert(files: list[str], originals: dict[str, str]) -> None:
 def log_delegation(task: dict, result: dict, verdict: str = "PENDING") -> None:
     """Log delegation event to metrics."""
     _ensure_dirs()
-    config = _load_worker_config()
+    config = _load_worker_config(_active_worker)
     event = {
         "timestamp": datetime.now(UTC).isoformat(),
         "task_id": task.get("id"),
@@ -994,6 +1130,9 @@ def delegate_parallel(task_files: list[str], max_workers: int = 10) -> list[dict
 def _execute_single(task: dict) -> dict:
     """Execute a single task (for parallel dispatch)."""
     task_id = task.get("id", "?")
+    routed_worker = _resolve_worker(task)
+    route_reason = "explicit" if task.get("worker") else ("cli" if _active_worker else "round-robin")
+    print(f"  [{task_id}] → {routed_worker or 'default'} ({route_reason})")
 
     if os.environ.get("RSI_SKIP_API_CHECK") != "1":
         spec_path = TASKS_DIR / f"{task_id}.json"
@@ -1007,7 +1146,7 @@ def _execute_single(task: dict) -> dict:
                     "output": api_output,
                 }
 
-    result = call_worker(task)
+    result = call_worker(task, worker_name=routed_worker)
     if result.get("error"):
         return {"task_id": task_id, "status": "failed", "error": result["error"]}
 
@@ -1016,6 +1155,7 @@ def _execute_single(task: dict) -> dict:
     return {
         "task_id": task_id,
         "status": "pending",
+        "worker": result.get("worker", routed_worker),
         "changes": list(result.get("changes", {}).keys()),
         "proof_wrong": result.get("proof_wrong", ""),
     }
@@ -1288,8 +1428,16 @@ def main():
         action="store_true",
         help="Skip pre-dispatch API verification (emergency override)",
     )
+    parser.add_argument(
+        "--worker",
+        default=None,
+        help="Named worker to use (e.g. 'kimi', 'minimax'). Must match a key in architecture.yaml workers section.",
+    )
 
     args = parser.parse_args()
+
+    global _active_worker
+    _active_worker = args.worker
 
     if args.history:
         cmd_history(args)

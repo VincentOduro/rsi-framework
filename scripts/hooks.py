@@ -332,6 +332,7 @@ def _build_edit_context(filepath: str) -> dict:
         "role": os.environ.get("RSI_ROLE", "overlord"),
         "sensitivity": sensitivity,
         "minimax_key_set": bool(os.environ.get("MINIMAX_API_KEY", "")),
+        "kimi_key_set": bool(os.environ.get("KIMI_API_KEY", "")),
         "has_delegation": _has_delegation_trail(rel_normalized),
         "has_override": _has_override(rel_normalized),
     }
@@ -371,7 +372,7 @@ def handle_pre_edit(tool_input: dict) -> None:
             print(f"[RSI] BLOCKED: '{rel}' is constitution-level.")
             sys.exit(1)
         if (
-            context["minimax_key_set"]
+            (context["minimax_key_set"] or context.get("kimi_key_set", False))
             and context["role"] != "worker"
             and context["sensitivity"] in ("guarded", "open")
             and context["file_exists"]

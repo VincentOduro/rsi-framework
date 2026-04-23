@@ -48,6 +48,20 @@ python3 scripts/rsi.py ci             # CI gate
 | Update CLAUDE.md | Overlord | Constitution file |
 | Pure question | Overlord | No files touched |
 
+## Worker Selection
+
+Both MiniMax and Kimi are active workers. Claude picks the worker per task by setting `"worker"` in the task spec. If omitted, tasks round-robin across available workers.
+
+| Use `minimax` when | Use `kimi` when |
+|---|---|
+| Task needs >128k context (whole-codebase scans) | Task is a targeted single-file change |
+| Bulk generation (many files, boilerplate) | Strong reasoning required (algorithmic logic, API use) |
+| Multi-file refactor across large surface area | Writing tests that require precise symbol resolution |
+| Long-context analysis (reading entire module trees) | Bug fixes needing focused cause-effect analysis |
+| Throughput matters (large parallel batch) | Quality matters more than speed |
+
+**Decision rule**: if the task's `files_to_read` total would exceed ~100k tokens, prefer `minimax`. If the task requires precise reasoning over a small focused surface, prefer `kimi`. When uncertain, omit `worker` and let round-robin decide.
+
 ## File Sensitivity
 
 | Level | Who Modifies | Examples |
@@ -68,9 +82,12 @@ python3 scripts/rsi.py ci             # CI gate
     "files_to_modify": ["src/target.py"],
     "acceptance_criteria": ["Testable criterion"],
     "proof_wrong": "Specific hypothesis",
-    "constraints": []
+    "constraints": [],
+    "worker": "kimi"
 }
 ```
+
+`worker` is optional. Valid values: `"minimax"`, `"kimi"`. Omit to let the dispatcher round-robin. See **Worker Selection** above for when to prefer each.
 
 ### Task types
 

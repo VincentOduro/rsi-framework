@@ -11,9 +11,9 @@ built on Toyota Production System principles. These are mandatory rules.
 4. **A->B->C loop.** Run `python3 scripts/rsi.py loop` after code changes.
 5. **No noise.** Every finding must be actionable. Signal ratio tracked.
 
-## Delegation (when MINIMAX_API_KEY is set)
+## Delegation (when MINIMAX_API_KEY or KIMI_API_KEY is set)
 
-**You ARE the overlord. MiniMax is the worker. This is enforced by hooks.**
+**You ARE the overlord. MiniMax and Kimi are workers. This is enforced by hooks.**
 
 If you try to edit a guarded/open file without a delegation trail, the
 pre-edit hook BLOCKS the edit. The only ways through:
@@ -22,9 +22,8 @@ pre-edit hook BLOCKS the edit. The only ways through:
 3. File is constitution-level (you edit those directly)
 4. File doesn't exist yet (new files allowed)
 
-**DO NOT use the Agent tool or subagents for work MiniMax should do.**
+**DO NOT use the Agent tool or subagents for work workers should do.**
 **DO NOT use `rsi.py auto` from Claude Code — it double-bills Claude.**
-**Only MINIMAX_API_KEY is required. You ARE Claude.**
 
 ### Delegation steps
 
@@ -33,16 +32,27 @@ pre-edit hook BLOCKS the edit. The only ways through:
 3. Review: `python3 scripts/rsi.py review-queue show TASK-NNN`
 4. Accept: `python3 scripts/rsi.py review-queue accept TASK-NNN --apply`
 
+### Worker selection (you decide per task)
+
+Set `"worker"` in the task spec to route to the best model:
+
+- **`"minimax"`** — large context, bulk generation, multi-file refactors
+- **`"kimi"`** — precise reasoning, targeted edits, API-sensitive code
+
+Omit `worker` to let the dispatcher round-robin. See `DELEGATION_GUIDE.md`
+for the full decision table. When a worker fails, decompose smaller or
+try the other worker — don't take over the implementation yourself.
+
 ### What to delegate (everything except constitution files)
 
 ALL code, tests, docs, audits, analysis, refactoring. No exceptions.
 No "safety-critical" excuse. No "too small" excuse. Default: DELEGATE.
-When MiniMax fails, decompose smaller — don't take over.
 
 ### Task spec tips
 
 - One file per task (multi-file = syntax errors)
 - Include exact import paths in instruction
+- Set `"worker"` to route to the best model for the task
 - For tests: put implementation in files_to_read
 - Keep instructions under 500 words
 - Acceptance criteria must be testable

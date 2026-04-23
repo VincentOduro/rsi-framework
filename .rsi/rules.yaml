@@ -11,6 +11,7 @@
 #   role              — current RSI_ROLE (overlord/worker)
 #   sensitivity       — file classification (constitution/guarded/open)
 #   minimax_key_set   — MINIMAX_API_KEY env var is set
+#   kimi_key_set      — KIMI_API_KEY env var is set
 #   has_delegation    — accepted review exists for this file
 #   has_override      — non-expired override exists for this file
 #   command           — bash command string (for pre_bash trigger)
@@ -40,9 +41,9 @@ rules:
   - id: R04
     name: "Delegation gate"
     trigger: pre_edit
-    condition: "minimax_key_set and role != 'worker' and sensitivity in ('guarded', 'open') and file_exists and not has_delegation and not has_override"
+    condition: "(minimax_key_set or kimi_key_set) and role != 'worker' and sensitivity in ('guarded', 'open') and file_exists and not has_delegation and not has_override"
     action: block
-    message: "Delegate to MiniMax first. Override: rsi.py override {file} --reason '...'"
+    message: "Delegate to worker first. Override: rsi.py override {file} --reason '...'"
 
   - id: R05
     name: "No --no-verify"

@@ -8,17 +8,38 @@ roles:
   overlord:
     model: "claude-opus"
     adapter: "claude"
-    description: "Architect, reviewer, decision-maker"
+    description: "Architect, reviewer, decision-maker, task router"
     permissions:
       - read_all
       - write_all
       - review
       - delegate
 
-  worker:
-    model: "minimax-m2.7"
+  worker_minimax:
+    model: "MiniMax-M2.7"
     adapter: "opencode"
-    description: "Implementer, test writer, bulk generator"
+    env_key: "MINIMAX_API_KEY"
+    description: "Bulk generation, long-context tasks, multi-file refactors"
+    strengths:
+      - "1M token context — ideal for whole-codebase analysis"
+      - "High throughput for large parallel batches"
+      - "Multi-file refactors and bulk code generation"
+      - "Tasks where sheer context size matters most"
+    permissions:
+      - read_all
+      - write_open
+      - write_guarded    # requires review before merge
+
+  worker_kimi:
+    model: "moonshot-v1-128k"
+    adapter: "opencode"
+    env_key: "KIMI_API_KEY"
+    description: "Targeted edits, precise reasoning, API-sensitive tasks"
+    strengths:
+      - "Strong precise reasoning for targeted single-file changes"
+      - "Accurate symbol resolution and API-sensitive implementations"
+      - "Test writing and bug fixes requiring focused analysis"
+      - "Tasks where reasoning quality matters more than context size"
     permissions:
       - read_all
       - write_open
@@ -67,6 +88,7 @@ delegation:
   auto_apply_open_files: false
 
 # API configuration (env vars override these)
+# worker_api: default worker (backward compat — used when --worker not specified)
 worker_api:
   provider: "minimax"
   base_url: "https://api.minimaxi.chat/v1"
@@ -74,3 +96,20 @@ worker_api:
   max_tokens: 32768
   timeout_seconds: 120
   env_key: "MINIMAX_API_KEY"
+
+# Named workers — select with: python3 scripts/delegate.py --worker <name> ...
+workers:
+  minimax:
+    provider: "minimax"
+    base_url: "https://api.minimaxi.chat/v1"
+    model: "MiniMax-M2.7"
+    max_tokens: 32768
+    timeout_seconds: 120
+    env_key: "MINIMAX_API_KEY"
+  kimi:
+    provider: "kimi"
+    base_url: "https://api.moonshot.cn/v1"
+    model: "moonshot-v1-128k"
+    max_tokens: 32768
+    timeout_seconds: 120
+    env_key: "KIMI_API_KEY"
