@@ -437,6 +437,113 @@ def test_worker_profile_non_numeric_values_fall_back_to_defaults():
     assert p.max_retries == 2
 
 
+def test_worker_profile_top_p_none_when_unset():
+    from scripts.delegate import WorkerProfile
+
+    p = WorkerProfile.from_config(
+        "bare",
+        {"provider": "x", "base_url": "u", "model": "m", "env_key": "K"},
+    )
+    assert p.top_p is None
+
+
+def test_worker_profile_top_p_parses_float():
+    from scripts.delegate import WorkerProfile
+
+    p = WorkerProfile.from_config(
+        "sample",
+        {
+            "provider": "x",
+            "base_url": "u",
+            "model": "m",
+            "env_key": "K",
+            "top_p": "0.95",
+        },
+    )
+    assert p.top_p == 0.95
+
+
+def test_worker_profile_top_p_invalid_falls_back_to_none():
+    from scripts.delegate import WorkerProfile
+
+    p = WorkerProfile.from_config(
+        "sample",
+        {
+            "provider": "x",
+            "base_url": "u",
+            "model": "m",
+            "env_key": "K",
+            "top_p": "not-a-number",
+        },
+    )
+    assert p.top_p is None
+
+
+def test_reasoning_sidecar_writes_content(tmp_path, monkeypatch):
+    import scripts.delegate as d
+
+    results = tmp_path / "results"
+    monkeypatch.setattr(d, "RESULTS_DIR", results)
+    monkeypatch.setattr(d, "REVIEWS_DIR", tmp_path)
+    monkeypatch.setattr(d, "PENDING_DIR", tmp_path / "pending")
+    monkeypatch.setattr(d, "DELEGATIONS_LOG", tmp_path / "delegations.jsonl")
+
+    reasoning = "Let me think through this.\nStep 1: ...\nStep 2: ..."
+    d._write_reasoning_sidecar("TASK-REASON-1", reasoning)
+    sidecar = results / "TASK-REASON-1.reasoning.txt"
+    assert sidecar.exists()
+    assert sidecar.read_text(encoding="utf-8") == reasoning
+
+
+def test_reasoning_sidecar_separate_from_raw(tmp_path, monkeypatch):
+    """Reasoning and raw sidecars are written to distinct files for the same task."""
+    import scripts.delegate as d
+
+    results = tmp_path / "results"
+    monkeypatch.setattr(d, "RESULTS_DIR", results)
+    monkeypatch.setattr(d, "REVIEWS_DIR", tmp_path)
+    monkeypatch.setattr(d, "PENDING_DIR", tmp_path / "pending")
+    monkeypatch.setattr(d, "DELEGATIONS_LOG", tmp_path / "delegations.jsonl")
+
+    d._write_raw_sidecar("TASK-DUAL-1", "raw output")
+    d._write_reasoning_sidecar("TASK-DUAL-1", "reasoning trace")
+
+    raw = results / "TASK-DUAL-1.raw.txt"
+    reason = results / "TASK-DUAL-1.reasoning.txt"
+    assert raw.exists() and reason.exists()
+    assert raw.read_text(encoding="utf-8") == "raw output"
+    assert reason.read_text(encoding="utf-8") == "reasoning trace"
+
+
+def test_kimi_thinking_profile_has_thinking_enabled(tmp_path, monkeypatch):
+    """End-to-end verification that the architecture.yaml kimi entry is
+    configured for thinking mode."""
+    import scripts.delegate as d
+
+    # Point at the real project architecture.yaml rather than writing a test fixture —
+    # this test is specifically verifying the shipped config matches operator intent.
+    d._worker_config_cache = None
+    d.ARCHITECTURE_FILE = PROJECT_ROOT / ".rsi" / "architecture.yaml"
+    profile = d._load_worker_profile("kimi")
+    assert profile.temperature == 1.0, (
+        f"kimi default must be thinking-mode (temp 1.0); got {profile.temperature}"
+    )
+    assert profile.extra_body == {"thinking": {"type": "enabled"}}
+    assert profile.top_p == 0.95
+
+
+def test_kimi_instant_profile_available_as_opt_out(tmp_path):
+    """kimi-instant provides explicit instant-mode routing for surgical tasks."""
+    import scripts.delegate as d
+
+    d._worker_config_cache = None
+    d.ARCHITECTURE_FILE = PROJECT_ROOT / ".rsi" / "architecture.yaml"
+    profile = d._load_worker_profile("kimi-instant")
+    assert profile.temperature == 0.6
+    assert profile.extra_body == {"thinking": {"type": "disabled"}}
+    assert profile.top_p == 0.95
+
+
 def test_load_worker_profile_end_to_end(tmp_path):
     _write_arch(
         tmp_path,

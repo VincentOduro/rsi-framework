@@ -126,6 +126,8 @@ worker_api:
 #   output_format_preference — "json" / "delimiter" / "either" (default either).
 #                              Governs parser ordering only — the fallback parser
 #                              still runs so no billed output is lost to a mismatch.
+#   top_p                    — nucleus sampling parameter (default 1.0 per SDK).
+#                              Kimi K2.6 vendor recommends 0.95 for both modes.
 workers:
   minimax:
     provider: "minimax"
@@ -156,27 +158,54 @@ workers:
     # provisioned for the .ai region with HTTP 401.
     base_url: "https://api.moonshot.ai/v1"
     # Kimi K2.6 — latest Moonshot reasoning model (as of 2026-04).
-    # Available IDs on this endpoint include kimi-k2.5 and kimi-k2.6.
     model: "kimi-k2.6"
-    max_tokens: 32768
-    # Server-side budget hint (legacy field; also falls back for client_timeout).
-    timeout_seconds: 120
-    # Client-side SDK timeout. 1800s (30 min) accommodates longer dispatches;
-    # the default 600s cut off Phase 1's larger Kimi tasks. Server accepts
-    # much higher (up to 2h) but 30 min is the practical ceiling for
-    # deterministic code-gen outside thinking mode.
-    client_timeout_seconds: 1800
-    # Extra retry headroom for transient Moonshot gateway errors.
-    max_retries: 3
-    # Temperature 0.6 is the ONLY value accepted when thinking is disabled;
-    # enabling thinking (default) requires temperature 1.0 and burns extra
-    # tokens on reasoning_content. We run non-thinking for deterministic
-    # code-gen and pair it with extra_body below.
-    temperature: 0.6
+    # Thinking mode is ON by default for the primary kimi worker. Kimi's
+    # primary RSI use case is code production (algorithm implementation,
+    # logic changes, test authoring), which benefits materially from the
+    # model's chain-of-thought reasoning before emitting output.
+    #
+    # Thinking mode constraints:
+    # - temperature MUST be 1.0 (vendor-enforced; 0.6 raises 400 error)
+    # - completion_tokens budget is shared between reasoning_content and
+    #   content, so we double max_tokens vs instant mode to give reasoning
+    #   + output enough headroom without hitting finish_reason=length
+    # - reasoning_content is captured by delegate.py to a sidecar at
+    #   .memory/reviews/results/TASK-{ID}.reasoning.txt (F6-style)
+    #
+    # For surgical-edit / pure-deletion tasks where thinking is wasteful
+    # (byte-preservation discipline can't benefit from reasoning, and
+    # reasoning tokens are pure overhead), route to `kimi-instant` below.
+    temperature: 1.0
+    # top_p 0.95 is Moonshot's recommended value across both modes.
+    top_p: 0.95
+    max_tokens: 65536
     max_output_lines: 2000
-    # Moonshot-specific parameter injected via extra_body. Written as YAML
-    # flow-style (inline JSON); the delegate parser reads this as a native
-    # nested dict. Disables reasoning output so completion_tokens map to
-    # content. Legacy extra_body_json string shim still accepted.
+    timeout_seconds: 120
+    client_timeout_seconds: 1800
+    max_retries: 3
+    extra_body: {"thinking": {"type": "enabled"}}
+    env_key: "KIMI_API_KEY"
+
+  kimi-instant:
+    provider: "kimi"
+    base_url: "https://api.moonshot.ai/v1"
+    model: "kimi-k2.6"
+    # Instant mode — thinking disabled. Use for surgical-edit and
+    # pure-deletion task categories where the per-dispatch task-category
+    # table in review-memo-base.md flags Kimi as "Mixed" / "Risky": no
+    # amount of chain-of-thought helps with byte-preservation, and
+    # reasoning tokens are pure overhead. Also useful for small logic
+    # fixes where the model doesn't need to deliberate.
+    #
+    # Constraints (mirror of kimi but inverted):
+    # - temperature MUST be 0.6 when thinking is disabled
+    # - No reasoning_content in response (nothing to sidecar)
+    temperature: 0.6
+    top_p: 0.95
+    max_tokens: 32768
+    max_output_lines: 2000
+    timeout_seconds: 120
+    client_timeout_seconds: 1800
+    max_retries: 3
     extra_body: {"thinking": {"type": "disabled"}}
     env_key: "KIMI_API_KEY"

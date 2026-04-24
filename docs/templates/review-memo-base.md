@@ -241,19 +241,40 @@ Review length:      {approximate word count of this memo}
 For reference at dispatch-planning time, not review time. These are
 *priors*, not rules. Real task nature overrides the default.
 
-| Category            | Kimi fit   | MiniMax fit | Key framing requirement                     |
-|---------------------|------------|-------------|---------------------------------------------|
-| Algorithm           | Well-suited| Well-suited | Standard task-spec template                 |
-| Logic change        | Well-suited| Well-suited | Style-neutral framing                       |
-| Surgical edit       | Mixed      | Mixed       | Explicit byte-preservation instruction      |
-| Pure deletion       | Risky      | Mixed       | Highest normalization-drift risk — consider direct edit |
-| Test authoring      | Well-suited| Well-suited | Include source module for monkeypatch paths |
-| Docs / prose        | Variable   | Variable    | Often faster direct — delegate only when operator capacity constrained |
+| Category            | Kimi (thinking, default) | Kimi-instant | MiniMax | Key framing requirement                     |
+|---------------------|---------------------------|--------------|---------|---------------------------------------------|
+| Algorithm           | Well-suited               | Acceptable   | Well-suited | Standard task-spec template            |
+| Logic change        | Well-suited               | Acceptable   | Well-suited | Style-neutral framing                  |
+| Surgical edit       | Discouraged (token waste) | Mixed        | Mixed   | Route to `kimi-instant` or direct edit; byte-preservation instruction mandatory |
+| Pure deletion       | Discouraged (token waste) | Risky        | Mixed   | Route to `kimi-instant` or direct edit; highest normalization-drift risk |
+| Test authoring      | Well-suited               | Acceptable   | Well-suited | Include source module for monkeypatch |
+| Docs / prose        | Variable                  | Variable     | Variable | Often faster direct — delegate only when capacity-constrained |
 
 See `docs/templates/task-spec-base.md` §0 for task-category framing
-language. Kimi's "mixed" / "risky" annotations are calibrated from
-Session 1-3 evidence: Kimi silently normalizes encoding / collapses
-blank lines / hallucinates byte-count self-reports on surgical tasks.
+language.
+
+**Kimi routing cheat-sheet (Session-4-tail update):**
+
+- **Default for code production** is `"worker": "kimi"` which runs in
+  thinking mode (temperature 1.0, `extra_body.thinking.type = enabled`,
+  max_tokens 65536 to accommodate reasoning + output). Benefits from
+  chain-of-thought on algorithm implementation, logic changes, and
+  test authoring.
+- **Explicit opt-out** is `"worker": "kimi-instant"` (temperature 0.6,
+  thinking disabled, max_tokens 32768). Use for surgical-edit and
+  pure-deletion tasks where reasoning tokens are pure overhead —
+  byte-preservation discipline doesn't benefit from chain-of-thought.
+- **Reasoning capture:** when `kimi` (thinking mode) runs, its
+  `reasoning_content` is sidecar-written at
+  `.memory/reviews/results/TASK-{ID}.reasoning.txt` alongside the raw
+  sidecar. Review can inspect the producer's chain-of-thought as
+  calibration data.
+
+Kimi-instant's "Mixed" / "Risky" annotations on surgical tasks are
+calibrated from Session 1-3 evidence: silent encoding normalization,
+blank-line collapse, hallucinated byte-count self-reports. Those
+failure modes are orthogonal to thinking mode — thinking doesn't fix
+them, and running thinking on these categories just burns tokens.
 MiniMax is similar on encoding but less prone to self-report drift.
 
 ---

@@ -80,6 +80,7 @@ class WorkerProfile:
     env_key: str
     max_tokens: int = 8192
     temperature: float = 0.3
+    top_p: float | None = None  # None → omit from create() call (SDK default)
     max_output_lines: int = 500
     client_timeout_seconds: int = 600
     max_retries: int = 2
@@ -137,6 +138,19 @@ class WorkerProfile:
                     # that don't care about extra_body.
                     extra_body = None
 
+        # top_p is absent by default — SDK default (1.0 for most workers) applies.
+        # Workers that want nucleus sampling (Kimi K2.6 recommends 0.95) set it
+        # explicitly in architecture.yaml.
+        raw_top_p = config.get("top_p")
+        top_p: float | None
+        if raw_top_p is None:
+            top_p = None
+        else:
+            try:
+                top_p = float(raw_top_p)
+            except (TypeError, ValueError):
+                top_p = None
+
         return cls(
             name=name,
             provider=str(config.get("provider", name)),
@@ -145,6 +159,7 @@ class WorkerProfile:
             env_key=str(config.get("env_key", "MINIMAX_API_KEY")),
             max_tokens=_int("max_tokens", 8192),
             temperature=_float("temperature", 0.3),
+            top_p=top_p,
             max_output_lines=_int("max_output_lines", 500),
             client_timeout_seconds=client_timeout,
             max_retries=_int("max_retries", 2),
@@ -916,6 +931,8 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
         create_kwargs: dict = {}
         if profile.extra_body:
             create_kwargs["extra_body"] = profile.extra_body
+        if profile.top_p is not None:
+            create_kwargs["top_p"] = profile.top_p
         response = client.chat.completions.create(
             model=profile.model,
             messages=[
@@ -931,10 +948,22 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
         raw = response.choices[0].message.content or ""
         # F6 — persist full raw response to sidecar BEFORE any parsing.
         # Guarantees billed worker output is recoverable even when parse fails.
+        task_id = task.get("id", "UNKNOWN")
         try:
-            _write_raw_sidecar(task.get("id", "UNKNOWN"), raw)
+            _write_raw_sidecar(task_id, raw)
         except OSError:
             pass
+        # Thinking-mode reasoning capture — Kimi K2.6 in thinking mode emits
+        # reasoning_content alongside content. Persist to a companion sidecar
+        # so review-time inspection can see the producer's chain-of-thought.
+        # Absent / None / empty → no sidecar written (instant-mode workers
+        # and non-reasoning models).
+        reasoning = getattr(response.choices[0].message, "reasoning_content", None)
+        if reasoning:
+            try:
+                _write_reasoning_sidecar(task_id, reasoning)
+            except OSError:
+                pass
         tokens = 0
         if hasattr(response, "usage") and response.usage:
             tokens = (response.usage.prompt_tokens or 0) + (response.usage.completion_tokens or 0)
@@ -1027,6 +1056,25 @@ def _write_raw_sidecar(task_id: str, raw: str) -> Path:
     _ensure_dirs()
     sidecar = RESULTS_DIR / f"{task_id}.raw.txt"
     sidecar.write_text(raw, encoding="utf-8")
+    return sidecar
+
+
+def _write_reasoning_sidecar(task_id: str, reasoning: str) -> Path:
+    """Persist the worker's thinking-mode reasoning_content to a sidecar.
+
+    Parallel to _write_raw_sidecar but for the chain-of-thought stream that
+    Kimi K2.6 and similar reasoning models emit alongside the final content.
+    Review-time inspection uses this for calibration — what did the
+    producer reason about, did it engage with task-spec traps explicitly,
+    did its reasoning path match the output it eventually produced.
+
+    Callers write this only when reasoning_content is non-empty (instant
+    mode and non-reasoning models emit None / empty string, in which case
+    no sidecar is needed).
+    """
+    _ensure_dirs()
+    sidecar = RESULTS_DIR / f"{task_id}.reasoning.txt"
+    sidecar.write_text(reasoning, encoding="utf-8")
     return sidecar
 
 

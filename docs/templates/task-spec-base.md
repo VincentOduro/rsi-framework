@@ -30,28 +30,49 @@ The `task_category` tag drives the framing language the rest of the spec
 uses. Pick carefully — the wrong framing is often the difference between
 a clean dispatch and a re-dispatch cycle.
 
-- **algorithm** — implement a function/class per a spec. Standard
-  template. Both workers suited.
-- **logic** — change or extend existing logic; surrounding style drift
-  is tolerable. Standard template; section §6 omits byte-preservation
-  language. Both workers suited.
-- **surgical-edit** — change specific lines only, preserve surrounding
-  bytes exactly. Session 1 U3 and U5 evidence: workers silently
-  normalize encoding, collapse blank lines, reorder imports, or
-  "clean up" unrelated sections. Signal A language in §6 is
-  mandatory for this category.
-- **pure-deletion** — remove specific lines without adding anything.
-  Highest normalization-drift risk. Consider direct edit (rsi.py
-  override) over delegation. If delegating, Signal A language in §6
-  is mandatory AND self-report byte counts required in §10.
-- **test** — author pytest cases for existing code. Well-suited to both
-  workers. Include the source module in files_to_read so
-  monkeypatch paths resolve correctly (see
-  `docs/templates/testing-conventions.md` §1).
-- **docs** — prose authoring / refinement. Often faster direct-edit for
-  the overlord; delegate only when operator capacity is the binding
-  constraint. When delegated, prose drift is expected — no byte-
-  preservation framing.
+Default Kimi routing per category is shown in parentheses; override by
+setting `"worker"` explicitly in §0.
+
+- **algorithm** (default worker: `kimi`, thinking mode) — implement a
+  function/class per a spec. Standard template. Thinking mode benefits
+  from chain-of-thought before emitting output; MiniMax is also suited
+  for bulk/multi-file refactors. Token cost: higher than instant mode.
+  Worth it for non-trivial logic.
+- **logic** (default worker: `kimi`, thinking mode) — change or extend
+  existing logic; surrounding style drift is tolerable. Section §6
+  omits byte-preservation language.
+- **surgical-edit** (default worker: `kimi-instant`) — change specific
+  lines only, preserve surrounding bytes exactly. Session 1 U3 and U5
+  evidence: workers silently normalize encoding, collapse blank lines,
+  reorder imports, or "clean up" unrelated sections. Signal A language
+  in §6 is mandatory. Route to `kimi-instant` rather than thinking-mode
+  Kimi — reasoning tokens don't help with byte-preservation discipline,
+  they just inflate cost.
+- **pure-deletion** (default worker: `kimi-instant` or direct edit) —
+  remove specific lines without adding anything. Highest normalization-
+  drift risk. Consider direct edit (rsi.py override) over delegation
+  entirely. If delegating, route to `kimi-instant`; Signal A language
+  in §6 is mandatory AND self-report byte counts required in §10.
+- **test** (default worker: `kimi`, thinking mode) — author pytest cases
+  for existing code. Thinking mode helps reason about edge-case
+  coverage. Include the source module in files_to_read so monkeypatch
+  paths resolve correctly (see testing-conventions.md §1).
+- **docs** (default worker: operator, direct edit) — prose authoring /
+  refinement. Often faster direct-edit; delegate only when operator
+  capacity is the binding constraint. When delegated, prose drift is
+  expected — no byte-preservation framing.
+
+### Kimi thinking-mode reasoning capture
+
+For tasks dispatched to `kimi` (thinking mode), the framework captures
+the model's `reasoning_content` to a sidecar at
+`.memory/reviews/results/TASK-{ID}.reasoning.txt` alongside the raw
+content sidecar. Review-time inspection can audit whether the producer's
+chain-of-thought engaged with calibration traps (§10) and self-report
+directives rather than inferring engagement from output shape alone.
+This is calibration infrastructure, not a required review input — empty
+or skimmed reasoning isn't itself a review failure, just a data point
+for the retrospective.
 
 ---
 
