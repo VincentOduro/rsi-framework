@@ -110,9 +110,12 @@ def classify_change(
                 risk_factors.append(f"Database migration: {f}")
 
     # Determine level
-    if not code_files and total_lines < 20:
+    if not code_files and not test_files:
         level = "minimal"
-        reason = "Documentation/config only, small change"
+        reason = (
+            f"Documentation/config only, {total_lines} lines across "
+            f"{len(doc_files)} doc + {len(config_files)} config file(s)"
+        )
     elif num_files <= 2 and total_lines < 30 and not risk_factors:
         level = "standard"
         reason = f"{num_files} file(s), {total_lines} lines, no risk factors"
