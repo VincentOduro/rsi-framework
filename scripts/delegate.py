@@ -599,6 +599,33 @@ def _find_json_object(text: str) -> dict | None:
     return max(candidates, key=lambda x: len(str(x)))
 
 
+_DELIMITER_FILE_RE = re.compile(
+    r"<<<FILE:\s*(?P<path>[^\r\n>]+?)\s*>>>\r?\n(?P<body>.*?)\r?\n<<<END FILE>>>",
+    re.DOTALL,
+)
+
+
+def _extract_delimiter_files(raw: str) -> dict | None:
+    """Parse `<<<FILE: path>>> ... <<<END FILE>>>` blocks into a changes dict.
+
+    Fallback for workers that emit delimiter-bounded file blocks instead of
+    the expected JSON wrapper. Returns None when no delimiter blocks are found.
+    """
+    if not raw:
+        return None
+    matches = list(_DELIMITER_FILE_RE.finditer(raw))
+    if not matches:
+        return None
+    changes: dict[str, str] = {}
+    for m in matches:
+        path = m.group("path").strip()
+        if path:
+            changes[path] = m.group("body")
+    if not changes:
+        return None
+    return {"changes": changes, "proof_wrong": "", "notes": ""}
+
+
 def _clean_json_string(text: str) -> dict | None:
     """Fix common JSON issues and attempt to parse."""
     s = text.strip()
@@ -743,6 +770,12 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
 
         latency = round(time.time() - start, 1)
         raw = response.choices[0].message.content or ""
+        # F6 — persist full raw response to sidecar BEFORE any parsing.
+        # Guarantees billed worker output is recoverable even when parse fails.
+        try:
+            _write_raw_sidecar(task.get("id", "UNKNOWN"), raw)
+        except OSError:
+            pass
         tokens = 0
         if hasattr(response, "usage") and response.usage:
             tokens = (response.usage.prompt_tokens or 0) + (response.usage.completion_tokens or 0)
@@ -764,6 +797,10 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
 
         # Robust JSON extraction — handles all common LLM output quirks
         parsed = _extract_json(raw)
+        if parsed is None:
+            # 9b — fall back to delimiter-block format for workers that emit
+            # <<<FILE: path>>>...<<<END FILE>>> instead of JSON.
+            parsed = _extract_delimiter_files(raw)
         if parsed is None:
             return {
                 "error": f"Worker returned invalid JSON. Raw (first 500 chars): {raw[:500]}",
@@ -816,11 +853,26 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
 # ---------------------------------------------------------------------------
 
 
+def _write_raw_sidecar(task_id: str, raw: str) -> Path:
+    """Persist the worker's full raw response to a sidecar file.
+
+    Called before any parsing attempt so that parser mismatches never result
+    in total loss of billed worker output. Sidecars live alongside the parsed
+    result JSON in RESULTS_DIR and are keyed by task id. Writes are full
+    content (no truncation); callers should bound their own in-memory use.
+    """
+    _ensure_dirs()
+    sidecar = RESULTS_DIR / f"{task_id}.raw.txt"
+    sidecar.write_text(raw, encoding="utf-8")
+    return sidecar
+
+
 def save_result(task_id: str, result: dict) -> Path:
     """Store worker result as JSON for later apply without re-calling API."""
     _ensure_dirs()
     result_path = RESULTS_DIR / f"{task_id}.json"
-    # Don't store raw_response (large, not needed for apply)
+    # Don't store raw_response (large, not needed for apply — raw is on disk
+    # via _write_raw_sidecar at {task_id}.raw.txt).
     stored = {k: v for k, v in result.items() if k != "raw_response"}
     result_path.write_text(json.dumps(stored, indent=2, ensure_ascii=False), encoding="utf-8")
     return result_path
