@@ -13,15 +13,19 @@ What it does:
 Usage:
     python3 scripts/self_feedback.py
     python3 scripts/self_feedback.py --task "auth fix" --files src/myapp/api/handler.py
+    python3 scripts/self_feedback.py --findings-file findings.yaml
 
 Note: This script is designed for interactive use. For CI contexts where
 interactive prompts are unavailable, run Module B via the non-interactive
 path in post_implementation.py (which captures proof-wrong and chains to
 self_optimization without requiring stdin input). Module B's value comes
 from adversarial thinking, not mechanical pattern detection.
+Alternatively, use the --findings-file flag to provide pre-populated
+findings and skip interactive mode entirely.
 """
 
 import argparse
+import json
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -306,10 +310,93 @@ def interactive_review(task: str, files: list[str]) -> tuple[list[dict], list[di
     return findings, optimizations, improvements
 
 
+def _load_findings_file(path: str, files: list[str]) -> tuple[list[dict], list[dict], list[dict], str | None]:
+    """Read a YAML or JSON findings file and return pre-populated data."""
+    file_path = Path(path)
+    raw = file_path.read_text(encoding="utf-8")
+
+    is_yaml = file_path.suffix.lower() in (".yml", ".yaml")
+
+    if is_yaml:
+        try:
+            import yaml
+        except ImportError:
+            raise RuntimeError(
+                "PyYAML is required to load YAML findings files. "
+                "Install it with: pip install pyyaml\n"
+                "Or convert your file to JSON and use a .json extension."
+            )
+        data = yaml.safe_load(raw)
+    else:
+        data = json.loads(raw)
+
+    if data is None:
+        data = {}
+
+    # Auto-review
+    auto_findings_cfg = data.get("auto_findings", {})
+    keep = auto_findings_cfg.get("keep", True)
+    confirm_all = auto_findings_cfg.get("confirm_all", False)
+
+    findings = review_code(files)
+    if not keep:
+        findings = []
+    elif confirm_all:
+        for f in findings:
+            f["confirmed"] = True
+
+    # Manual findings
+    manual_findings = data.get("manual_findings", [])
+    for entry in manual_findings:
+        description = entry.get("description", "")
+        findings.append(
+            {
+                "description": description,
+                "confirmed": False,
+                "verification": "",
+                "file": "",
+                "line": 0,
+            }
+        )
+
+    # Optimizations
+    optimizations = []
+    for entry in data.get("optimizations", []):
+        optimizations.append(
+            {
+                "description": entry.get("description", ""),
+                "impact": entry.get("impact", ""),
+                "confirmed": False,
+                "verification": "",
+            }
+        )
+
+    # Improvements
+    improvements = []
+    for entry in data.get("improvements", []):
+        improvements.append(
+            {
+                "description": entry.get("description", ""),
+                "is_pattern_candidate": entry.get("is_pattern_candidate", False),
+                "applies_to": entry.get("applies_to", ""),
+                "confirmed": False,
+                "verification": "",
+            }
+        )
+
+    task_override = data.get("task")
+    return findings, optimizations, improvements, task_override
+
+
 def main():
     parser = argparse.ArgumentParser(description="Module B: Self-feedback")
     parser.add_argument("--task", help="Task name")
     parser.add_argument("--files", nargs="*", help="Files to review")
+    parser.add_argument(
+        "--findings-file",
+        help="Path to YAML/JSON file with pre-populated findings "
+             "(skips interactive mode)",
+    )
     args = parser.parse_args()
 
     if not args.files:
@@ -317,9 +404,14 @@ def main():
     else:
         files = args.files
 
-    task = args.task or input("Task name: ").strip() or "Unnamed task"
-
-    findings, optimizations, improvements = interactive_review(task, files)
+    if args.findings_file:
+        findings, optimizations, improvements, task_override = _load_findings_file(
+            args.findings_file, files,
+        )
+        task = task_override or args.task or "Unnamed task (programmatic)"
+    else:
+        task = args.task or input("Task name: ").strip() or "Unnamed task"
+        findings, optimizations, improvements = interactive_review(task, files)
 
     # Log to file
     log_feedback_to_file(task, findings, optimizations, improvements)
