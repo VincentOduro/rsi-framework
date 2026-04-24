@@ -20,6 +20,7 @@ import os
 import re
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -56,6 +57,108 @@ def _ensure_dirs():
 _worker_config_cache: dict[str, dict] | None = None
 _active_worker: str | None = None  # Set by --worker flag in main()
 _round_robin_index: int = 0  # Global counter for round-robin routing
+
+
+@dataclass(frozen=True)
+class WorkerProfile:
+    """Typed view of a worker's architecture.yaml config.
+
+    Session 3 consolidated eleven per-worker fields with varying fallback
+    patterns into a single typed shape. `from_config` centralizes all casts
+    and default resolution so call_worker / validate_task read attributes
+    directly instead of re-deriving the same fallbacks at every call site.
+
+    _load_worker_config is preserved as the raw-dict path for backward
+    compatibility with existing tests and scripts; _load_worker_profile is
+    the typed path the delegate itself uses.
+    """
+
+    name: str
+    provider: str
+    base_url: str
+    model: str
+    env_key: str
+    max_tokens: int = 8192
+    temperature: float = 0.3
+    max_output_lines: int = 500
+    client_timeout_seconds: int = 600
+    max_retries: int = 2
+    extra_body: dict | None = None
+    output_format_preference: str = "either"
+
+    @classmethod
+    def from_config(cls, name: str, config: dict) -> "WorkerProfile":
+        """Build a profile from a raw config dict (as returned by _load_worker_config).
+
+        Handles:
+        - int/float casts with safe fallback to defaults on non-numeric values
+        - legacy extra_body_json string shim → extra_body dict
+        - client_timeout_seconds fallback chain through legacy timeout_seconds
+        - output_format_preference normalization to lowercase
+        """
+        def _int(key: str, default: int) -> int:
+            try:
+                val = config.get(key)
+                return int(val) if val is not None else default
+            except (TypeError, ValueError):
+                return default
+
+        def _float(key: str, default: float) -> float:
+            try:
+                val = config.get(key)
+                return float(val) if val is not None else default
+            except (TypeError, ValueError):
+                return default
+
+        # Client timeout — prefer client_timeout_seconds; fall back to the legacy
+        # `timeout_seconds` field (projects that had it set before Session 3
+        # intended it as the client budget even though nothing wired it through).
+        client_timeout = _int("client_timeout_seconds", 0)
+        if not client_timeout:
+            client_timeout = _int("timeout_seconds", 600)
+
+        # extra_body — prefer native nested dict; fall back to the legacy
+        # extra_body_json string shim. Malformed shim raises ValueError so the
+        # caller surfaces it rather than silently dropping the vendor params.
+        extra_body: dict | None = None
+        raw_eb = config.get("extra_body")
+        if isinstance(raw_eb, dict):
+            extra_body = raw_eb
+        elif raw_eb is None:
+            legacy = config.get("extra_body_json", "").strip()
+            if legacy:
+                try:
+                    parsed = json.loads(legacy)
+                    if isinstance(parsed, dict):
+                        extra_body = parsed
+                except json.JSONDecodeError:
+                    # Defer the error to call_worker where it becomes a structured
+                    # result — raising here would break validate_task callers
+                    # that don't care about extra_body.
+                    extra_body = None
+
+        return cls(
+            name=name,
+            provider=str(config.get("provider", name)),
+            base_url=str(config.get("base_url", "")),
+            model=str(config.get("model", "")),
+            env_key=str(config.get("env_key", "MINIMAX_API_KEY")),
+            max_tokens=_int("max_tokens", 8192),
+            temperature=_float("temperature", 0.3),
+            max_output_lines=_int("max_output_lines", 500),
+            client_timeout_seconds=client_timeout,
+            max_retries=_int("max_retries", 2),
+            extra_body=extra_body,
+            output_format_preference=str(
+                config.get("output_format_preference", "either")
+            ).lower(),
+        )
+
+
+def _load_worker_profile(worker_name: str | None = None) -> WorkerProfile:
+    """Load a worker's config and return it as a typed WorkerProfile."""
+    raw = _load_worker_config(worker_name)
+    return WorkerProfile.from_config(worker_name or "default", raw)
 
 
 def _load_worker_config(worker_name: str | None = None) -> dict:
@@ -355,14 +458,12 @@ def validate_task(task: dict) -> list[str]:
         if not safe.exists():
             issues.append(f"File to read does not exist: {clean_path}")
 
-    # F9 — Output-size warning threshold read from per-worker config
-    # (max_output_lines in architecture.yaml workers.<name>). Falls back to
-    # 500 when no worker is declared on the task, preserving prior behavior.
+    # F9 — Output-size warning threshold read from WorkerProfile. Falls back
+    # to 500 when no worker is declared on the task (legacy path).
     worker_name = task.get("worker")
     if worker_name:
         try:
-            worker_cfg = _load_worker_config(worker_name)
-            max_output_lines = int(worker_cfg.get("max_output_lines", 500))
+            max_output_lines = _load_worker_profile(worker_name).max_output_lines
         except (ValueError, KeyError):
             max_output_lines = 500
     else:
@@ -773,8 +874,8 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
         }
     """
     resolved = worker_name if worker_name is not None else _resolve_worker(task)
-    config = _load_worker_config(resolved)
-    api_key = _get_api_key(config)
+    profile = _load_worker_profile(resolved)
+    api_key = _get_api_key({"env_key": profile.env_key})
 
     prompt = build_worker_prompt(task)
     if revision_instruction:
@@ -785,81 +886,44 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
     except ImportError:
         return {"error": "openai package required. Install: pip install openai"}
 
-    # Per-worker client-side budgets. The OpenAI SDK defaults to 10 min
-    # timeout and 2 retries. Reasoning workers (Kimi K2.6 in thinking mode)
-    # can exceed 10 min on large inputs, and some workers benefit from
-    # additional retry headroom. Both fields are overridable in
-    # architecture.yaml workers.<name>; scalars arrive as strings from
-    # _parse_named_worker so we int-cast with a fallback.
-    try:
-        client_timeout = int(
-            config.get("client_timeout_seconds")
-            or config.get("timeout_seconds")
-            or 600
-        )
-    except (TypeError, ValueError):
-        client_timeout = 600
-    try:
-        max_retries = int(config.get("max_retries", 2))
-    except (TypeError, ValueError):
-        max_retries = 2
+    # Per-worker client-side budgets come from WorkerProfile (built by
+    # from_config with fallback chains for legacy field names).
     client = OpenAI(
         api_key=api_key,
-        base_url=config["base_url"],
-        timeout=client_timeout,
-        max_retries=max_retries,
+        base_url=profile.base_url,
+        timeout=profile.client_timeout_seconds,
+        max_retries=profile.max_retries,
     )
 
     start = time.time()
     try:
-        # F5 — temperature read from per-worker config; Kimi K2.6 requires 0.6
-        # (non-thinking) or 1.0 (thinking), MiniMax accepts the legacy 0.3 default.
-        try:
-            temperature = float(config.get("temperature", 0.3))
-        except (TypeError, ValueError):
-            temperature = 0.3
-        # Per-worker extra_body for API-specific parameters (e.g., Moonshot's
-        # `thinking` flag for Kimi K2.6 non-thinking mode). Stored inline
-        # in architecture.yaml as YAML flow-style and parsed to a native dict
-        # by _parse_named_worker. Legacy `extra_body_json` string shim still
-        # accepted for backward compatibility with configs written before
-        # Session 3's nested-parser upgrade.
-        extra_body_val = config.get("extra_body")
-        if extra_body_val is None:
-            # Legacy shim — architecture.yaml still used extra_body_json
-            legacy = config.get("extra_body_json", "").strip()
-            if legacy:
-                try:
-                    extra_body_val = json.loads(legacy)
-                except json.JSONDecodeError as e:
-                    return {
-                        "error": (
-                            f"Worker '{resolved}' has invalid extra_body_json in "
-                            f"architecture.yaml: {e}"
-                        ),
-                        "latency_seconds": round(time.time() - start, 1),
-                        "worker": config.get("provider", resolved),
-                    }
-        create_kwargs: dict = {}
-        if extra_body_val:
-            if not isinstance(extra_body_val, dict):
+        # extra_body is already the resolved dict (or None) from WorkerProfile.
+        # Surface a structured error if the config had a malformed string shim.
+        raw_eb = _load_worker_config(resolved).get("extra_body_json", "").strip()
+        if profile.extra_body is None and raw_eb:
+            # from_config silently dropped the malformed shim; re-surface here.
+            try:
+                json.loads(raw_eb)
+            except json.JSONDecodeError as e:
                 return {
                     "error": (
-                        f"Worker '{resolved}' extra_body must be an object, "
-                        f"got {type(extra_body_val).__name__}"
+                        f"Worker '{resolved}' has invalid extra_body_json in "
+                        f"architecture.yaml: {e}"
                     ),
                     "latency_seconds": round(time.time() - start, 1),
-                    "worker": config.get("provider", resolved),
+                    "worker": profile.provider,
                 }
-            create_kwargs["extra_body"] = extra_body_val
+        create_kwargs: dict = {}
+        if profile.extra_body:
+            create_kwargs["extra_body"] = profile.extra_body
         response = client.chat.completions.create(
-            model=config["model"],
+            model=profile.model,
             messages=[
                 {"role": "system", "content": WORKER_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=int(config.get("max_tokens", 8192)),
-            temperature=temperature,
+            max_tokens=profile.max_tokens,
+            temperature=profile.temperature,
             **create_kwargs,
         )
 
@@ -882,8 +946,8 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
         if finish_reason == "length":
             return {
                 "error": (
-                    f"Worker hit max_tokens limit ({config.get('max_tokens')}); response was truncated. "
-                    f"Increase worker_api.max_tokens in .rsi/architecture.yaml or decompose the task."
+                    f"Worker hit max_tokens limit ({profile.max_tokens}); response was truncated. "
+                    f"Increase workers.{resolved}.max_tokens in .rsi/architecture.yaml or decompose the task."
                 ),
                 "raw_response": raw[:2000],
                 "tokens_used": tokens,
@@ -891,13 +955,12 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
             }
 
         # Robust output extraction — parser chain order is driven by the
-        # worker's output_format_preference config:
+        # worker's output_format_preference (from WorkerProfile, lowercased):
         #   "json" / "either" / unset → JSON first, delimiter fallback (default)
         #   "delimiter"                → delimiter first, JSON fallback
         # The fallback in either direction preserves 9b behavior (no billed
         # output is lost to a parser mismatch).
-        format_pref = str(config.get("output_format_preference", "either")).lower()
-        if format_pref == "delimiter":
+        if profile.output_format_preference == "delimiter":
             parsed = _extract_delimiter_files(raw) or _extract_json(raw)
         else:
             parsed = _extract_json(raw) or _extract_delimiter_files(raw)
@@ -937,14 +1000,14 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
             "raw_response": raw[:2000],
             "tokens_used": tokens,
             "latency_seconds": latency,
-            "worker": config.get("provider", resolved),
+            "worker": profile.provider,
         }
 
     except Exception as e:
         return {
             "error": f"API call failed: {type(e).__name__}: {e}",
             "latency_seconds": round(time.time() - start, 1),
-            "worker": config.get("provider", resolved) if "config" in dir() else resolved,
+            "worker": profile.provider,
         }
 
 

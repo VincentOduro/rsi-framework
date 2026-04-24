@@ -5,6 +5,7 @@ Covers:
 - Legacy extra_body_json fallback for backward compatibility
 - client_timeout_seconds and max_retries per-worker with fallbacks
 - output_format_preference: delimiter-first vs JSON-first parser ordering
+- WorkerProfile dataclass: from_config casts, fallback chains, defaults
 """
 
 import json
@@ -289,3 +290,179 @@ def test_format_preference_fallback_preserves_9b_behavior(monkeypatch):
         parsed = d._extract_json(raw) or d._extract_delimiter_files(raw)
     assert parsed is not None
     assert "f.py" in parsed["changes"]
+
+
+# ---------------------------------------------------------------------------
+# WorkerProfile dataclass
+# ---------------------------------------------------------------------------
+
+
+def test_worker_profile_casts_scalars_from_string_config():
+    """_parse_named_worker returns all scalars as strings; from_config casts them."""
+    from scripts.delegate import WorkerProfile
+
+    raw = {
+        "provider": "x",
+        "base_url": "https://x/v1",
+        "model": "m",
+        "env_key": "K",
+        "max_tokens": "32768",
+        "temperature": "0.6",
+        "max_output_lines": "2000",
+        "client_timeout_seconds": "1800",
+        "max_retries": "3",
+    }
+    p = WorkerProfile.from_config("probe", raw)
+    assert p.max_tokens == 32768 and isinstance(p.max_tokens, int)
+    assert p.temperature == 0.6 and isinstance(p.temperature, float)
+    assert p.max_output_lines == 2000 and isinstance(p.max_output_lines, int)
+    assert p.client_timeout_seconds == 1800
+    assert p.max_retries == 3
+
+
+def test_worker_profile_defaults_when_fields_absent():
+    from scripts.delegate import WorkerProfile
+
+    p = WorkerProfile.from_config(
+        "bare",
+        {"provider": "x", "base_url": "u", "model": "m", "env_key": "K"},
+    )
+    assert p.max_tokens == 8192
+    assert p.temperature == 0.3
+    assert p.max_output_lines == 500
+    assert p.client_timeout_seconds == 600
+    assert p.max_retries == 2
+    assert p.extra_body is None
+    assert p.output_format_preference == "either"
+
+
+def test_worker_profile_client_timeout_falls_back_to_legacy_field():
+    from scripts.delegate import WorkerProfile
+
+    p = WorkerProfile.from_config(
+        "legacy",
+        {
+            "provider": "x",
+            "base_url": "u",
+            "model": "m",
+            "env_key": "K",
+            "timeout_seconds": "120",  # no client_timeout_seconds
+        },
+    )
+    assert p.client_timeout_seconds == 120
+
+
+def test_worker_profile_accepts_native_extra_body_dict():
+    from scripts.delegate import WorkerProfile
+
+    p = WorkerProfile.from_config(
+        "kimi",
+        {
+            "provider": "x",
+            "base_url": "u",
+            "model": "m",
+            "env_key": "K",
+            "extra_body": {"thinking": {"type": "disabled"}},
+        },
+    )
+    assert p.extra_body == {"thinking": {"type": "disabled"}}
+
+
+def test_worker_profile_accepts_legacy_extra_body_json_shim():
+    from scripts.delegate import WorkerProfile
+
+    p = WorkerProfile.from_config(
+        "legacy",
+        {
+            "provider": "x",
+            "base_url": "u",
+            "model": "m",
+            "env_key": "K",
+            "extra_body_json": '{"thinking": {"type": "disabled"}}',
+        },
+    )
+    assert p.extra_body == {"thinking": {"type": "disabled"}}
+
+
+def test_worker_profile_invalid_extra_body_json_leaves_none():
+    """Malformed JSON in legacy shim — from_config silently drops; call_worker surfaces it."""
+    from scripts.delegate import WorkerProfile
+
+    p = WorkerProfile.from_config(
+        "broken",
+        {
+            "provider": "x",
+            "base_url": "u",
+            "model": "m",
+            "env_key": "K",
+            "extra_body_json": "{not valid json",
+        },
+    )
+    assert p.extra_body is None
+
+
+def test_worker_profile_normalizes_output_format_preference_case():
+    from scripts.delegate import WorkerProfile
+
+    p = WorkerProfile.from_config(
+        "mixed",
+        {
+            "provider": "x",
+            "base_url": "u",
+            "model": "m",
+            "env_key": "K",
+            "output_format_preference": "DELIMITER",
+        },
+    )
+    assert p.output_format_preference == "delimiter"
+
+
+def test_worker_profile_non_numeric_values_fall_back_to_defaults():
+    from scripts.delegate import WorkerProfile
+
+    p = WorkerProfile.from_config(
+        "broken",
+        {
+            "provider": "x",
+            "base_url": "u",
+            "model": "m",
+            "env_key": "K",
+            "max_tokens": "not-a-number",
+            "temperature": "hot",
+            "max_retries": "many",
+        },
+    )
+    assert p.max_tokens == 8192
+    assert p.temperature == 0.3
+    assert p.max_retries == 2
+
+
+def test_load_worker_profile_end_to_end(tmp_path):
+    _write_arch(
+        tmp_path,
+        """
+        workers:
+          kimi:
+            provider: "kimi"
+            base_url: "https://api.moonshot.ai/v1"
+            model: "kimi-k2.6"
+            temperature: 0.6
+            max_output_lines: 2000
+            client_timeout_seconds: 1800
+            max_retries: 3
+            extra_body: {"thinking": {"type": "disabled"}}
+            output_format_preference: "either"
+            env_key: "KIMI_API_KEY"
+        """,
+    )
+    from scripts.delegate import _load_worker_profile
+
+    p = _load_worker_profile("kimi")
+    assert p.name == "kimi"
+    assert p.model == "kimi-k2.6"
+    assert p.temperature == 0.6
+    assert p.max_output_lines == 2000
+    assert p.client_timeout_seconds == 1800
+    assert p.max_retries == 3
+    assert p.extra_body == {"thinking": {"type": "disabled"}}
+    assert p.output_format_preference == "either"

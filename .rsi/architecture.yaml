@@ -132,7 +132,16 @@ workers:
     base_url: "https://api.minimaxi.chat/v1"
     model: "MiniMax-M2.7"
     max_tokens: 32768
+    # Legacy server-side hint; preserved for backward compatibility.
+    # NB: prior to Session 3 this field was parsed but not wired into the
+    # OpenAI client. Session 3's WorkerProfile uses it as a fallback for
+    # client_timeout_seconds when the explicit field is absent.
     timeout_seconds: 120
+    # Explicit client-side SDK timeout. M2.7's observed p99 dispatch latency
+    # is ~40s; 600s leaves a ~15× safety margin without letting a runaway
+    # call stall the pipeline indefinitely. Set explicitly so the legacy
+    # 120s timeout_seconds doesn't silently become the client budget.
+    client_timeout_seconds: 600
     temperature: 0.3
     # Recalibrated from the retrospective's 500 default (which was sized for
     # MiniMax-M1's 16K output budget). M2.7 has 32K max_tokens; 1500 gives
