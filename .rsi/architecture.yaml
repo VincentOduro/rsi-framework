@@ -112,11 +112,17 @@ worker_api:
 # Named workers — select with: python3 scripts/delegate.py --worker <name> ...
 #
 # Per-worker fields (defaults apply when omitted):
-#   temperature       — sampling temperature passed to chat.completions.create
-#                       (default 0.3 — safe for MiniMax; Kimi non-thinking requires 0.6,
-#                       thinking mode requires 1.0)
-#   max_output_lines  — pre-flight warning threshold for files_to_modify line count
-#                       (default 500 — MiniMax 16K-token safety; Kimi K2.6 handles 2000+)
+#   temperature              — sampling temperature passed to chat.completions.create
+#                              (default 0.3 — safe for MiniMax; Kimi non-thinking requires 0.6,
+#                              thinking mode requires 1.0)
+#   max_output_lines         — pre-flight warning threshold for files_to_modify line count
+#                              (default 500 — MiniMax 16K-token safety; Kimi K2.6 handles 2000+)
+#   client_timeout_seconds   — OpenAI SDK request timeout (default 600; the SDK's own
+#                              default). Reasoning workers in thinking mode may need 1800+.
+#                              Legacy `timeout_seconds` accepted as fallback.
+#   max_retries              — OpenAI SDK retry count on transient errors (default 2).
+#   extra_body               — vendor-specific create() parameters (YAML flow-style dict).
+#                              Example: {"thinking": {"type": "disabled"}} for Kimi K2.6.
 workers:
   minimax:
     provider: "minimax"
@@ -141,11 +147,19 @@ workers:
     # Available IDs on this endpoint include kimi-k2.5 and kimi-k2.6.
     model: "kimi-k2.6"
     max_tokens: 32768
+    # Server-side budget hint (legacy field; also falls back for client_timeout).
     timeout_seconds: 120
+    # Client-side SDK timeout. 1800s (30 min) accommodates longer dispatches;
+    # the default 600s cut off Phase 1's larger Kimi tasks. Server accepts
+    # much higher (up to 2h) but 30 min is the practical ceiling for
+    # deterministic code-gen outside thinking mode.
+    client_timeout_seconds: 1800
+    # Extra retry headroom for transient Moonshot gateway errors.
+    max_retries: 3
     # Temperature 0.6 is the ONLY value accepted when thinking is disabled;
     # enabling thinking (default) requires temperature 1.0 and burns extra
     # tokens on reasoning_content. We run non-thinking for deterministic
-    # code-gen and pair it with extra_body_json below.
+    # code-gen and pair it with extra_body below.
     temperature: 0.6
     max_output_lines: 2000
     # Moonshot-specific parameter injected via extra_body. Written as YAML

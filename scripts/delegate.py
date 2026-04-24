@@ -785,7 +785,30 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
     except ImportError:
         return {"error": "openai package required. Install: pip install openai"}
 
-    client = OpenAI(api_key=api_key, base_url=config["base_url"])
+    # Per-worker client-side budgets. The OpenAI SDK defaults to 10 min
+    # timeout and 2 retries. Reasoning workers (Kimi K2.6 in thinking mode)
+    # can exceed 10 min on large inputs, and some workers benefit from
+    # additional retry headroom. Both fields are overridable in
+    # architecture.yaml workers.<name>; scalars arrive as strings from
+    # _parse_named_worker so we int-cast with a fallback.
+    try:
+        client_timeout = int(
+            config.get("client_timeout_seconds")
+            or config.get("timeout_seconds")
+            or 600
+        )
+    except (TypeError, ValueError):
+        client_timeout = 600
+    try:
+        max_retries = int(config.get("max_retries", 2))
+    except (TypeError, ValueError):
+        max_retries = 2
+    client = OpenAI(
+        api_key=api_key,
+        base_url=config["base_url"],
+        timeout=client_timeout,
+        max_retries=max_retries,
+    )
 
     start = time.time()
     try:
