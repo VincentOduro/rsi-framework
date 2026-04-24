@@ -113,7 +113,12 @@ workers:
     max_tokens: 32768
     timeout_seconds: 120
     temperature: 0.3
-    max_output_lines: 500
+    # Recalibrated from the retrospective's 500 default (which was sized for
+    # MiniMax-M1's 16K output budget). M2.7 has 32K max_tokens; 1500 gives
+    # roughly 3× the M1-era headroom with room for prompt, JSON wrapper,
+    # and reasoning overhead. Session 1's U1 (587-line self_verify.py)
+    # would have dispatched cleanly under this cap.
+    max_output_lines: 1500
     env_key: "MINIMAX_API_KEY"
   kimi:
     provider: "kimi"
