@@ -87,6 +87,18 @@ delegation:
   require_proof_wrong: true
   auto_apply_open_files: false
 
+# Pre-commit hook strictness (U4 — retrospective §3.4)
+#
+#   preflight_only — session check + file-read preflight + src/ self_verify
+#                    + script syntax. Current behavior; fastest path.
+#   verify_warn    — preflight_only plus a ceremony-classifier health probe.
+#                    Failures emit a WARNING but do not block the commit.
+#                    (Default. Surfaces ceremony-module breakage without
+#                     halting project work.)
+#   verify_strict  — same probe as verify_warn but failures exit 1.
+#                    Opt in once ceremony modules are stable in your project.
+pre_commit_strictness: "verify_warn"
+
 # API configuration (env vars override these)
 # worker_api: default worker (backward compat — used when --worker not specified)
 worker_api:
