@@ -64,8 +64,14 @@ def test_pre_edit_blocks_unread_file(tmp_path):
 
 
 def test_pre_edit_allows_read_file(tmp_path, monkeypatch):
+    """With no worker keys set, gate is inactive and a read file can be edited.
+
+    Dual-worker era: both MINIMAX_API_KEY and KIMI_API_KEY must be cleared
+    (either one alone keeps the R04 delegation gate active).
+    """
     h = _setup_hooks(tmp_path)
     monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.delenv("KIMI_API_KEY", raising=False)
     src = tmp_path / "src" / "main.py"
     src.parent.mkdir(parents=True, exist_ok=True)
     src.write_text("x = 1", encoding="utf-8")

@@ -1,5 +1,5 @@
 """Tests for the delegation enforcement gate — verifies that Claude cannot
-edit guarded/open files directly when MINIMAX_API_KEY is set."""
+edit guarded/open files directly when any worker API key is set."""
 
 import json
 import sys
@@ -123,17 +123,46 @@ def test_gate_allows_constitution_files(tmp_path, monkeypatch):
     h.handle_pre_edit({"file_path": str(tmp_path / "CLAUDE.md")})
 
 
-def test_gate_inactive_without_minimax_key(tmp_path, monkeypatch):
-    """No MINIMAX_API_KEY = single-model mode, gate inactive."""
+def test_gate_inactive_without_any_worker_keys(tmp_path, monkeypatch):
+    """No worker API keys at all = single-model mode, gate inactive.
+
+    The R04 rule (see .rsi/rules.yaml) activates when EITHER MINIMAX_API_KEY
+    OR KIMI_API_KEY is set. With both absent, delegation isn't possible —
+    there's no worker to delegate to — so the gate must not block the
+    overlord's edits.
+
+    (Prior to dual-worker support this test only cleared MINIMAX_API_KEY and
+    the rule only checked that one env var. Post-dual-worker, the test must
+    clear both or KIMI_API_KEY in the developer env keeps R04 active and
+    the edit is blocked. Investigated as Session 2 housekeeping.)
+    """
     h = _setup_hooks(tmp_path)
     monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.delenv("KIMI_API_KEY", raising=False)
     monkeypatch.setenv("RSI_ROLE", "overlord")
 
     _create_test_file(tmp_path, "scripts/metrics.py")
     _record_read(h, tmp_path, "scripts/metrics.py")
 
-    # Should not raise — gate only active when MINIMAX_API_KEY set
+    # Should not raise — gate only active when at least one worker key set
     h.handle_pre_edit({"file_path": str(tmp_path / "scripts/metrics.py")})
+
+
+def test_gate_active_with_kimi_only(tmp_path, monkeypatch):
+    """KIMI_API_KEY alone (no MiniMax) keeps the gate active — dual-worker era."""
+    import pytest
+
+    h = _setup_hooks(tmp_path)
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.setenv("KIMI_API_KEY", "test-key-123")
+    monkeypatch.setenv("RSI_ROLE", "overlord")
+
+    _create_test_file(tmp_path, "scripts/metrics.py")
+    _record_read(h, tmp_path, "scripts/metrics.py")
+
+    # Gate active → edit blocked → SystemExit
+    with pytest.raises(SystemExit):
+        h.handle_pre_edit({"file_path": str(tmp_path / "scripts/metrics.py")})
 
 
 def test_gate_allows_with_override(tmp_path, monkeypatch):
