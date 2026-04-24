@@ -71,7 +71,7 @@ def _load_architecture() -> dict[str, list[str]]:
 
         # Parse pattern entries
         if in_patterns and stripped.startswith("- "):
-            pattern = stripped[2:].strip().strip('"').strip("'")
+            pattern = stripped[2:].split('#', 1)[0].strip().strip('"').strip("'")
             if pattern and not pattern.startswith("#"):
                 if current_level:
                     result[current_level].append(pattern)
