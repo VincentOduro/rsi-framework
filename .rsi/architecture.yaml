@@ -148,8 +148,9 @@ workers:
     # code-gen and pair it with extra_body_json below.
     temperature: 0.6
     max_output_lines: 2000
-    # Moonshot-specific parameter injected via extra_body. Encoded as a JSON
-    # string because the delegate's YAML-subset parser only handles flat
-    # scalars. Disables reasoning output so completion_tokens map to content.
-    extra_body_json: '{"thinking": {"type": "disabled"}}'
+    # Moonshot-specific parameter injected via extra_body. Written as YAML
+    # flow-style (inline JSON); the delegate parser reads this as a native
+    # nested dict. Disables reasoning output so completion_tokens map to
+    # content. Legacy extra_body_json string shim still accepted.
+    extra_body: {"thinking": {"type": "disabled"}}
     env_key: "KIMI_API_KEY"

@@ -132,7 +132,14 @@ def _parse_worker_api_section(content: str) -> dict:
 
 
 def _parse_named_worker(content: str, name: str) -> dict:
-    """Extract a named entry from the `workers:` section of architecture.yaml."""
+    """Extract a named entry from the `workers:` section of architecture.yaml.
+
+    Scalar values are stored as strings (callers cast to int/float as needed).
+    Values starting with `{` or `[` are parsed as inline JSON (YAML flow-style)
+    so nested structures like `extra_body: {"thinking": {"type": "disabled"}}`
+    arrive as a real dict in the resulting config rather than a stringified
+    JSON blob. Session 3 — replaces the earlier extra_body_json string shim.
+    """
     config: dict = {}
     in_workers = False
     in_target = False
@@ -148,7 +155,16 @@ def _parse_named_worker(content: str, name: str) -> dict:
             if in_target:
                 if line.startswith("    ") and ":" in stripped and not stripped.startswith("#"):
                     key, _, val = stripped.partition(":")
-                    val = val.strip().strip('"').strip("'")
+                    val = val.strip()
+                    # YAML flow-style nested value (inline JSON)
+                    if val.startswith(("{", "[")):
+                        try:
+                            config[key.strip()] = json.loads(val)
+                            continue
+                        except json.JSONDecodeError:
+                            pass  # fall through to scalar string handling
+                    # Scalar string fallback — strip surrounding quotes
+                    val = val.strip('"').strip("'")
                     if val:
                         config[key.strip()] = val
                 elif line.startswith("  ") and not line.startswith("    ") or (not line.startswith(" ") and line.strip()):
@@ -780,24 +796,39 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
         except (TypeError, ValueError):
             temperature = 0.3
         # Per-worker extra_body for API-specific parameters (e.g., Moonshot's
-        # `thinking` flag for Kimi K2.6 non-thinking mode). Stored as a JSON
-        # string in architecture.yaml because the YAML-subset parser only
-        # handles flat scalars. Session 3 (worker-genericization) will likely
-        # replace this with first-class nested config support.
-        extra_body_str = config.get("extra_body_json", "").strip()
+        # `thinking` flag for Kimi K2.6 non-thinking mode). Stored inline
+        # in architecture.yaml as YAML flow-style and parsed to a native dict
+        # by _parse_named_worker. Legacy `extra_body_json` string shim still
+        # accepted for backward compatibility with configs written before
+        # Session 3's nested-parser upgrade.
+        extra_body_val = config.get("extra_body")
+        if extra_body_val is None:
+            # Legacy shim — architecture.yaml still used extra_body_json
+            legacy = config.get("extra_body_json", "").strip()
+            if legacy:
+                try:
+                    extra_body_val = json.loads(legacy)
+                except json.JSONDecodeError as e:
+                    return {
+                        "error": (
+                            f"Worker '{resolved}' has invalid extra_body_json in "
+                            f"architecture.yaml: {e}"
+                        ),
+                        "latency_seconds": round(time.time() - start, 1),
+                        "worker": config.get("provider", resolved),
+                    }
         create_kwargs: dict = {}
-        if extra_body_str:
-            try:
-                create_kwargs["extra_body"] = json.loads(extra_body_str)
-            except json.JSONDecodeError as e:
+        if extra_body_val:
+            if not isinstance(extra_body_val, dict):
                 return {
                     "error": (
-                        f"Worker '{resolved}' has invalid extra_body_json in "
-                        f"architecture.yaml: {e}"
+                        f"Worker '{resolved}' extra_body must be an object, "
+                        f"got {type(extra_body_val).__name__}"
                     ),
                     "latency_seconds": round(time.time() - start, 1),
                     "worker": config.get("provider", resolved),
                 }
+            create_kwargs["extra_body"] = extra_body_val
         response = client.chat.completions.create(
             model=config["model"],
             messages=[
