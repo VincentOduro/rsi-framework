@@ -349,17 +349,61 @@ def get_staged_files() -> list[Path]:
 
 
 def find_placeholder_code(file_path: Path) -> list[str]:
-    """Scan a file for placeholder patterns. Returns list of offending lines."""
-    issues = []
-    try:
-        content = file_path.read_text(encoding="utf-8")
-    except Exception:
-        return [f"Could not read {file_path}"]
+    """Scan a file for placeholder patterns.
 
-    for i, line in enumerate(content.splitlines(), 1):
+    U1 — only the lines *added* relative to HEAD are scanned. Pre-existing
+    placeholders in unchanged regions are the prior commit's responsibility
+    and must not block an unrelated edit elsewhere in the file.
+
+    Falls back to a whole-file scan when `git diff` is unavailable, returns
+    non-zero, or yields no output (untracked files, non-repo checkouts).
+    The fallback guarantees we never silently skip the check.
+    """
+    issues: list[str] = []
+
+    # Resolve the path relative to PROJECT_ROOT for the git invocation.
+    # If the file is outside the repo, fall straight through to whole-file.
+    try:
+        rel_path = file_path.resolve().relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        rel_path = None
+
+    diff_stdout: str | None = None
+    if rel_path is not None:
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--unified=0", "HEAD", "--", rel_path],
+                capture_output=True,
+                text=True,
+                cwd=PROJECT_ROOT,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                diff_stdout = result.stdout
+        except (subprocess.SubprocessError, FileNotFoundError, OSError):
+            diff_stdout = None
+
+    use_whole_file = not diff_stdout or not diff_stdout.strip()
+    if use_whole_file:
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except Exception:
+            return [f"Could not read {file_path}"]
+        for i, line in enumerate(content.splitlines(), 1):
+            for pat in PLACEHOLDER_PATTERNS:
+                if pat in line:
+                    issues.append(f"  line {i}: {line.strip()}")
+        return issues
+
+    for diff_line in diff_stdout.splitlines():
+        # Skip hunk headers (@@...) and the +++ new-file marker; keep real
+        # added lines, which start with a single '+'.
+        if not diff_line.startswith("+") or diff_line.startswith("+++"):
+            continue
+        added = diff_line[1:]
         for pat in PLACEHOLDER_PATTERNS:
-            if pat in line:
-                issues.append(f"  line {i}: {line.strip()}")
+            if pat in added:
+                issues.append(f"  added line: {added.strip()}")
     return issues
 
 
