@@ -117,10 +117,22 @@ workers:
     env_key: "MINIMAX_API_KEY"
   kimi:
     provider: "kimi"
-    base_url: "https://api.moonshot.cn/v1"
-    model: "moonshot-v1-128k"
+    # International Moonshot endpoint — the .cn endpoint rejects keys
+    # provisioned for the .ai region with HTTP 401.
+    base_url: "https://api.moonshot.ai/v1"
+    # Kimi K2.6 — latest Moonshot reasoning model (as of 2026-04).
+    # Available IDs on this endpoint include kimi-k2.5 and kimi-k2.6.
+    model: "kimi-k2.6"
     max_tokens: 32768
     timeout_seconds: 120
+    # Temperature 0.6 is the ONLY value accepted when thinking is disabled;
+    # enabling thinking (default) requires temperature 1.0 and burns extra
+    # tokens on reasoning_content. We run non-thinking for deterministic
+    # code-gen and pair it with extra_body_json below.
     temperature: 0.6
     max_output_lines: 2000
+    # Moonshot-specific parameter injected via extra_body. Encoded as a JSON
+    # string because the delegate's YAML-subset parser only handles flat
+    # scalars. Disables reasoning output so completion_tokens map to content.
+    extra_body_json: '{"thinking": {"type": "disabled"}}'
     env_key: "KIMI_API_KEY"

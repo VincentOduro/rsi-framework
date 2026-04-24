@@ -779,6 +779,25 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
             temperature = float(config.get("temperature", 0.3))
         except (TypeError, ValueError):
             temperature = 0.3
+        # Per-worker extra_body for API-specific parameters (e.g., Moonshot's
+        # `thinking` flag for Kimi K2.6 non-thinking mode). Stored as a JSON
+        # string in architecture.yaml because the YAML-subset parser only
+        # handles flat scalars. Session 3 (worker-genericization) will likely
+        # replace this with first-class nested config support.
+        extra_body_str = config.get("extra_body_json", "").strip()
+        create_kwargs: dict = {}
+        if extra_body_str:
+            try:
+                create_kwargs["extra_body"] = json.loads(extra_body_str)
+            except json.JSONDecodeError as e:
+                return {
+                    "error": (
+                        f"Worker '{resolved}' has invalid extra_body_json in "
+                        f"architecture.yaml: {e}"
+                    ),
+                    "latency_seconds": round(time.time() - start, 1),
+                    "worker": config.get("provider", resolved),
+                }
         response = client.chat.completions.create(
             model=config["model"],
             messages=[
@@ -787,6 +806,7 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
             ],
             max_tokens=int(config.get("max_tokens", 8192)),
             temperature=temperature,
+            **create_kwargs,
         )
 
         latency = round(time.time() - start, 1)

@@ -54,6 +54,29 @@ def test_worker_with_explicit_temperature_reads_value(tmp_path, monkeypatch):
     assert float(config["temperature"]) == 0.6
 
 
+def test_worker_extra_body_json_parses_valid_nested(tmp_path, monkeypatch):
+    _write_arch(
+        tmp_path,
+        """
+        workers:
+          kimi:
+            provider: "kimi"
+            base_url: "https://api.moonshot.ai/v1"
+            model: "kimi-k2.6"
+            temperature: 0.6
+            extra_body_json: '{"thinking": {"type": "disabled"}}'
+            env_key: "KIMI_API_KEY"
+        """,
+    )
+    import json
+
+    from scripts.delegate import _load_worker_config
+
+    cfg = _load_worker_config("kimi")
+    parsed = json.loads(cfg["extra_body_json"])
+    assert parsed == {"thinking": {"type": "disabled"}}
+
+
 def test_worker_without_temperature_defaults_to_0_3(tmp_path, monkeypatch):
     _write_arch(
         tmp_path,
