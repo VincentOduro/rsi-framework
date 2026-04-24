@@ -64,3 +64,69 @@ def test_rsi_directory_is_constitution():
 
     assert classify_file(".rsi/architecture.yaml") == "constitution"
     assert classify_file(".rsi/tasks/TASK-001.json") == "constitution"
+
+
+# U5 regression — inline comments on pattern lines must be stripped before
+# fnmatch compilation. Without the fix, a pattern like
+#   - "SPEC_AMENDMENTS.md"  # amendments tracking
+# becomes `SPEC_AMENDMENTS.md"  # amendments tracking`, never matches, and
+# the file silently falls through to DEFAULT_SENSITIVITY.
+
+
+def test_inline_comments_stripped_from_patterns(tmp_path, monkeypatch):
+    import scripts.classify_file as cf
+
+    arch = tmp_path / "architecture.yaml"
+    arch.write_text(
+        'file_sensitivity:\n'
+        '  constitution:\n'
+        '    description: "test tier"\n'
+        '    patterns:\n'
+        '      - "SPEC_AMENDMENTS.md"  # amendments tracking\n'
+        '      - "docs/design/**"   # spec documents\n'
+        '  guarded:\n'
+        '    description: "guarded tier"\n'
+        '    patterns:\n'
+        '      - "scripts/*.py"\n'
+        '  open:\n'
+        '    description: "open"\n'
+        '    patterns:\n'
+        '      - "tests/**"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cf, "ARCHITECTURE_FILE", arch)
+    monkeypatch.setattr(cf, "_architecture_cache", None)
+
+    assert cf.classify_file("SPEC_AMENDMENTS.md") == "constitution"
+    assert cf.classify_file("docs/design/match_score.md") == "constitution"
+    # Guarded and open still work alongside the fix
+    assert cf.classify_file("scripts/metrics.py") == "guarded"
+    assert cf.classify_file("tests/test_foo.py") == "open"
+
+
+def test_patterns_without_comments_unaffected(tmp_path, monkeypatch):
+    import scripts.classify_file as cf
+
+    arch = tmp_path / "architecture.yaml"
+    arch.write_text(
+        'file_sensitivity:\n'
+        '  constitution:\n'
+        '    description: "c"\n'
+        '    patterns:\n'
+        '      - "CLAUDE.md"\n'
+        '  guarded:\n'
+        '    description: "g"\n'
+        '    patterns:\n'
+        '      - "scripts/*.py"\n'
+        '  open:\n'
+        '    description: "o"\n'
+        '    patterns:\n'
+        '      - "*.md"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cf, "ARCHITECTURE_FILE", arch)
+    monkeypatch.setattr(cf, "_architecture_cache", None)
+
+    assert cf.classify_file("CLAUDE.md") == "constitution"
+    assert cf.classify_file("scripts/foo.py") == "guarded"
+    assert cf.classify_file("README.md") == "open"
