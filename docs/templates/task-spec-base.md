@@ -57,10 +57,20 @@ setting `"worker"` explicitly in §0.
   for existing code. Thinking mode helps reason about edge-case
   coverage. Include the source module in files_to_read so monkeypatch
   paths resolve correctly (see testing-conventions.md §1).
-- **docs** (default worker: operator, direct edit) — prose authoring /
-  refinement. Often faster direct-edit; delegate only when operator
-  capacity is the binding constraint. When delegated, prose drift is
-  expected — no byte-preservation framing.
+- **docs** (default routing depends on content type) —
+  - **Pattern-following prose** (README boilerplate, docstrings,
+    reference documentation, prose that templates well): default
+    worker `kimi-instant` (no reasoning burn needed for templated
+    content; cheap worker tokens substitute for expensive overlord
+    tokens).
+  - **Analysis / synthesis docs** (retrospectives, audits, scope
+    decisions, framework design memos): default operator direct-edit —
+    the content requires operator-specific judgment that doesn't
+    delegate cleanly, and the overlord's context is load-bearing.
+  - When in doubt between the two, delegate first and override if the
+    result doesn't match. Worker tokens are cheap; overlord tokens are
+    the constrained resource. Prose drift is expected when delegated —
+    no byte-preservation framing.
 
 ### Kimi thinking-mode reasoning capture
 
