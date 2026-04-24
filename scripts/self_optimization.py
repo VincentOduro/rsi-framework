@@ -12,7 +12,6 @@ Usage:
     python3 scripts/self_optimization.py --plan-only   # Just show priorities, don't write files
 """
 
-import argparse
 from datetime import datetime
 from pathlib import Path
 
@@ -322,9 +321,6 @@ def write_priorities_to_tracker(prioritized: list[dict], actions: list[str]) -> 
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Module C: Self-optimization")
-    args = parser.parse_args()
-
     print("=" * 60)
     print("MODULE C: SELF-OPTIMIZATION")
     print("=" * 60)
