@@ -101,6 +101,9 @@ def _load_worker_config(worker_name: str | None = None) -> dict:
     config.setdefault("max_tokens", "8192")
     config.setdefault("timeout_seconds", "120")
     config.setdefault("env_key", "MINIMAX_API_KEY")
+    # F5/F9 — per-worker defaults; preserve prior MiniMax-calibrated values.
+    config.setdefault("temperature", "0.3")
+    config.setdefault("max_output_lines", "500")
 
     if _worker_config_cache is None:
         _worker_config_cache = {}
@@ -336,8 +339,18 @@ def validate_task(task: dict) -> list[str]:
         if not safe.exists():
             issues.append(f"File to read does not exist: {clean_path}")
 
-    # Output size warning — MiniMax has ~16K output token limit
-    MAX_OUTPUT_LINES = 500
+    # F9 — Output-size warning threshold read from per-worker config
+    # (max_output_lines in architecture.yaml workers.<name>). Falls back to
+    # 500 when no worker is declared on the task, preserving prior behavior.
+    worker_name = task.get("worker")
+    if worker_name:
+        try:
+            worker_cfg = _load_worker_config(worker_name)
+            max_output_lines = int(worker_cfg.get("max_output_lines", 500))
+        except (ValueError, KeyError):
+            max_output_lines = 500
+    else:
+        max_output_lines = 500
     for filepath in task.get("files_to_modify", []):
         try:
             full = _safe_project_path(filepath)
@@ -345,10 +358,12 @@ def validate_task(task: dict) -> list[str]:
             continue  # already reported above
         if full.exists():
             line_count = full.read_text(encoding="utf-8").count("\n") + 1
-            if line_count > MAX_OUTPUT_LINES:
+            if line_count > max_output_lines:
+                worker_label = worker_name or "worker"
                 issues.append(
-                    f"WARNING: {filepath} has {line_count} lines (>{MAX_OUTPUT_LINES}). "
-                    f"MiniMax may truncate output. Decompose into smaller tasks or write directly."
+                    f"WARNING: {filepath} has {line_count} lines (>{max_output_lines} "
+                    f"for {worker_label}). Output may be truncated. Decompose into "
+                    f"smaller tasks or raise workers.{worker_label}.max_output_lines."
                 )
 
     # Unique task ID — skip if we're delegating the file that's already in .rsi/tasks/
@@ -758,6 +773,12 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
 
     start = time.time()
     try:
+        # F5 — temperature read from per-worker config; Kimi K2.6 requires 0.6
+        # (non-thinking) or 1.0 (thinking), MiniMax accepts the legacy 0.3 default.
+        try:
+            temperature = float(config.get("temperature", 0.3))
+        except (TypeError, ValueError):
+            temperature = 0.3
         response = client.chat.completions.create(
             model=config["model"],
             messages=[
@@ -765,7 +786,7 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
                 {"role": "user", "content": prompt},
             ],
             max_tokens=int(config.get("max_tokens", 8192)),
-            temperature=0.3,
+            temperature=temperature,
         )
 
         latency = round(time.time() - start, 1)

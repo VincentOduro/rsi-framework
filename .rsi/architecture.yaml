@@ -98,6 +98,13 @@ worker_api:
   env_key: "MINIMAX_API_KEY"
 
 # Named workers — select with: python3 scripts/delegate.py --worker <name> ...
+#
+# Per-worker fields (defaults apply when omitted):
+#   temperature       — sampling temperature passed to chat.completions.create
+#                       (default 0.3 — safe for MiniMax; Kimi non-thinking requires 0.6,
+#                       thinking mode requires 1.0)
+#   max_output_lines  — pre-flight warning threshold for files_to_modify line count
+#                       (default 500 — MiniMax 16K-token safety; Kimi K2.6 handles 2000+)
 workers:
   minimax:
     provider: "minimax"
@@ -105,6 +112,8 @@ workers:
     model: "MiniMax-M2.7"
     max_tokens: 32768
     timeout_seconds: 120
+    temperature: 0.3
+    max_output_lines: 500
     env_key: "MINIMAX_API_KEY"
   kimi:
     provider: "kimi"
@@ -112,4 +121,6 @@ workers:
     model: "moonshot-v1-128k"
     max_tokens: 32768
     timeout_seconds: 120
+    temperature: 0.6
+    max_output_lines: 2000
     env_key: "KIMI_API_KEY"
