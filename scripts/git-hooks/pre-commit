@@ -21,6 +21,7 @@ cd "$PROJECT_ROOT"
 
 RED='\033[91m'
 GREEN='\033[92m'
+YELLOW='\033[93m'
 RESET='\033[0m'
 
 echo "Running pre-commit checks..."
@@ -103,6 +104,49 @@ if [ -n "$SCRIPT_CHANGED" ]; then
     for f in $SCRIPT_CHANGED; do
         python3 -B "$PROJECT_ROOT/scripts/preflight_check.py" --record "$f" 2>/dev/null
     done
+fi
+
+# ---- 4. Ceremony probe (configurable via pre_commit_strictness) ----
+STRICTNESS=$(python3 -B -c "
+import re
+try:
+    content = open('.rsi/architecture.yaml', encoding='utf-8').read()
+    m = re.search(r'^pre_commit_strictness:\s*[\"\']?([\w_]+)', content, re.MULTILINE)
+    print(m.group(1) if m else 'verify_warn')
+except Exception:
+    print('verify_warn')
+" 2>/dev/null)
+STRICTNESS=${STRICTNESS:-verify_warn}
+
+if [ "$STRICTNESS" != "preflight_only" ]; then
+    echo ""
+    echo "[CEREMONY] Running ceremony classifier probe..."
+    CEREMONY_OUTPUT=$(python3 -B -m scripts.ceremony --json 2>&1) || CEREMONY_EXIT=$?
+    CEREMONY_EXIT=${CEREMONY_EXIT:-0}
+
+    if [ $CEREMONY_EXIT -ne 0 ]; then
+        if [ "$STRICTNESS" = "verify_strict" ]; then
+            echo "${RED}✗ CEREMONY probe FAILED — commit blocked (verify_strict mode)${RESET}"
+            exit 1
+        else
+            echo "${YELLOW}WARNING: ceremony classifier did not return clean output${RESET}"
+            echo "Ceremony module is surfacing an issue but not blocking the commit (verify_warn mode)."
+        fi
+    else
+        CEREMONY_LEVEL=$(echo "$CEREMONY_OUTPUT" | python3 -B -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    level = data.get('level', 'unknown')
+    print(f'level: {level}')
+except Exception:
+    print('level: unknown')
+" 2>/dev/null)
+        if [ "$STRICTNESS" = "verify_strict" ]; then
+            echo "${GREEN}✓ Ceremony probe passed${RESET}"
+        fi
+        echo "[CEREMONY] ${CEREMONY_LEVEL:-level: unknown}"
+    fi
 fi
 
 echo ""
