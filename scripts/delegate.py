@@ -890,12 +890,17 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
                 "latency_seconds": latency,
             }
 
-        # Robust JSON extraction — handles all common LLM output quirks
-        parsed = _extract_json(raw)
-        if parsed is None:
-            # 9b — fall back to delimiter-block format for workers that emit
-            # <<<FILE: path>>>...<<<END FILE>>> instead of JSON.
-            parsed = _extract_delimiter_files(raw)
+        # Robust output extraction — parser chain order is driven by the
+        # worker's output_format_preference config:
+        #   "json" / "either" / unset → JSON first, delimiter fallback (default)
+        #   "delimiter"                → delimiter first, JSON fallback
+        # The fallback in either direction preserves 9b behavior (no billed
+        # output is lost to a parser mismatch).
+        format_pref = str(config.get("output_format_preference", "either")).lower()
+        if format_pref == "delimiter":
+            parsed = _extract_delimiter_files(raw) or _extract_json(raw)
+        else:
+            parsed = _extract_json(raw) or _extract_delimiter_files(raw)
         if parsed is None:
             return {
                 "error": f"Worker returned invalid JSON. Raw (first 500 chars): {raw[:500]}",

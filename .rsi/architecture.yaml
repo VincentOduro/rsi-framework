@@ -123,6 +123,9 @@ worker_api:
 #   max_retries              — OpenAI SDK retry count on transient errors (default 2).
 #   extra_body               — vendor-specific create() parameters (YAML flow-style dict).
 #                              Example: {"thinking": {"type": "disabled"}} for Kimi K2.6.
+#   output_format_preference — "json" / "delimiter" / "either" (default either).
+#                              Governs parser ordering only — the fallback parser
+#                              still runs so no billed output is lost to a mismatch.
 workers:
   minimax:
     provider: "minimax"
