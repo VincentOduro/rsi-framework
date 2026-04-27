@@ -31,6 +31,14 @@ PYPROJECT_FILE = PROJECT_ROOT / "pyproject.toml"
 GIT_HOOKS_DIR = PROJECT_ROOT / "scripts" / "git-hooks"
 DELEGATE_PY = PROJECT_ROOT / "scripts" / "delegate.py"
 
+# Force UTF-8 stdout/stderr so glyphs print on Windows cp1252 consoles.
+# Python 3.7+ exposes reconfigure(); guard for environments without it.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
 # Optional colors import
 try:
     from scripts.colors import green, red, yellow, bold
@@ -288,6 +296,7 @@ def _audit_hook() -> dict:
 
     findings: list[str] = []
     clean = 0
+    skipped_count = 0
     total = 0
     for hf in sorted(hook_files):
         total += 1
@@ -295,7 +304,12 @@ def _audit_hook() -> dict:
         if text.startswith("#!/bin/bash") or hf.suffix == ".sh":
             res = _run(["bash", "-n", str(hf)])
             if res.returncode != 0:
-                findings.append(f"{hf.name}: bash syntax error")
+                stderr_text = (res.stderr or "")
+                if "WSL" in stderr_text or "wsl: Failed to mount" in stderr_text:
+                    findings.append(f"{hf.name}: bash skipped (WSL shim active; install Git Bash or run via WSL with mounts configured)")
+                    skipped_count += 1
+                else:
+                    findings.append(f"{hf.name}: bash syntax error")
             else:
                 clean += 1
         elif hf.suffix == ".py":
@@ -307,17 +321,29 @@ def _audit_hook() -> dict:
         else:
             findings.append(f"{hf.name}: unrecognized hook type (skipped check)")
 
-    if findings:
-        summary = f"hooks: {len(findings)}/{total} have issues"
+    real_findings = [f for f in findings if "WSL shim active" not in f]
+    if real_findings:
+        summary = f"hooks: {len(real_findings)}/{total} have issues"
+        if skipped_count:
+            summary += f", {skipped_count} skipped (WSL shim)"
+    elif skipped_count:
+        summary = f"hooks: {clean}/{total} clean, {skipped_count} skipped (WSL shim)"
     else:
         summary = f"hooks: {clean}/{total} clean"
+
+    ok = (clean + skipped_count == total)
+    skipped = (skipped_count == total and total > 0)
+    skip_reason = None
+    if skipped:
+        skip_reason = "WSL bash shim cannot read project paths; install Git Bash or run audit from WSL environment."
+
     return {
         "category": "hook",
-        "ok": not findings,
+        "ok": ok,
         "findings": findings,
         "summary": summary,
-        "skipped": False,
-        "skip_reason": None,
+        "skipped": skipped,
+        "skip_reason": skip_reason,
     }
 
 
@@ -379,9 +405,14 @@ def _audit_config_consumption() -> dict:
         patterns = [
             f'config.get("{key}"',
             f"config.get('{key}'",
-            f"config[\"{key}\"]",
+            f'config["{key}"]',
             f"config['{key}']",
             f"profile.{key}",
+            # Session 3 WorkerProfile helpers — _int / _float wrap config.get()
+            f'_int("{key}"',
+            f"_int('{key}'",
+            f'_float("{key}"',
+            f"_float('{key}'",
         ]
         if not any(p in delegate_src for p in patterns):
             unconsumed.append(f"{dotted}: not referenced in delegate.py")
