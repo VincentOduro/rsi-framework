@@ -22,6 +22,7 @@ Usage:
     python3 scripts/rsi.py setup              # One-time setup
     python3 scripts/rsi.py sync               # Framework sync
     python3 scripts/rsi.py status             # Quick status
+    python3 scripts/rsi.py audit              # Proactive infrastructure audit
 """
 
 import os
@@ -248,6 +249,11 @@ def cmd_status(args: list[str]) -> None:
     print()
 
 
+def cmd_audit(args: list[str]) -> None:
+    """Run proactive infrastructure-gap audit."""
+    _run("audit.py", args, allow_failure=True)
+
+
 def cmd_adapt(args: list[str]) -> None:
     """Generate platform-specific adapter files."""
 
@@ -409,6 +415,7 @@ COMMANDS = {
     "setup": (cmd_setup, "One-time setup"),
     "sync": (cmd_sync, "Framework sync / update"),
     "status": (cmd_status, "Quick status overview"),
+    "audit": (cmd_audit, "Proactive infrastructure audit (lint, types, tests, hooks, config consumption)"),
 }
 
 
