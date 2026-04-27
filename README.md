@@ -2,7 +2,7 @@
 
 A disciplined meta-process that turns every implementation into a learning opportunity — built on Toyota Production System principles. Drops into any AI-assisted project so the agent builds under measured quality discipline and keeps improving itself.
 
-**Status:** v2.6 • **Runtime:** Python 3.11+ • **Deps:** pydantic, openai • **Tested on:** Windows 11, macOS, Linux, WSL2
+**Status:** v2.7 • **Runtime:** Python 3.11+ • **Deps:** pydantic, openai • **Tested on:** Windows 11, macOS, Linux, WSL2
 
 ---
 
@@ -41,12 +41,14 @@ The overlord writes the task spec (`.rsi/tasks/TASK-NNN.json`), picks the right 
 
 **Worker selection** — Claude decides per task:
 
-| Use `minimax` when | Use `kimi` when |
-|---|---|
-| Task needs >128k context (whole-codebase scans) | Targeted single-file change |
-| Bulk generation across many files | Strong reasoning required (algorithms, API use) |
-| Multi-file refactor over large surface area | Test writing with precise symbol resolution |
-| Throughput matters in a large parallel batch | Quality matters more than speed |
+| Use `minimax` when | Use `kimi` (thinking-mode default) when | Use `kimi-instant` when |
+|---|---|---|
+| Task needs >128k context (whole-codebase scans) | Algorithm implementation, logic changes, test authoring | Surgical-edit / pure-deletion (byte-preservation) |
+| Bulk generation across many files | Strong reasoning required (chain-of-thought pays out) | Reasoning tokens are overhead, not signal |
+| Multi-file refactor over large surface area | Targeted single-file change with non-trivial logic | Small mechanical fixes |
+| Throughput matters in a large parallel batch | Quality matters more than per-dispatch token cost | Style-consistency drift would mask real changes |
+
+The `kimi` worker runs Kimi K2.6 in **thinking mode by default** (chain-of-thought before output, `reasoning_content` captured to a sidecar at `.memory/reviews/results/TASK-{ID}.reasoning.txt`). For tasks where reasoning is wasteful — surgical edits, pure deletions, byte-preservation discipline — route explicitly to `kimi-instant` (instant mode, no reasoning burn).
 
 File sensitivity is declared in [`.rsi/architecture.yaml`](.rsi/architecture.yaml):
 
@@ -166,7 +168,8 @@ Layer 6: Measurement         (scripts/metrics.py + calibration.py + trust.py)
 | [`engine/protocol.py`](engine/protocol.py) | Pydantic v2 models: TaskSpec, WorkerResult, ReviewDecision, DelegationEvent |
 | [`scripts/rsi.py`](scripts/rsi.py) | Unified CLI — single entry point |
 | [`scripts/hooks.py`](scripts/hooks.py) | Tool-layer enforcement (poka-yoke) |
-| [`scripts/delegate.py`](scripts/delegate.py) | Multi-worker delegation, per-task routing, parallel DAG executor, quality ratchet |
+| [`scripts/delegate.py`](scripts/delegate.py) | Multi-worker delegation with `WorkerProfile` dataclass, per-task routing, parallel DAG executor, quality ratchet, F6 raw + reasoning sidecars |
+| [`scripts/audit.py`](scripts/audit.py) | Proactive infrastructure-gap audit (lint, types, test discovery, hook syntax, config consumption) |
 | [`scripts/review_queue.py`](scripts/review_queue.py) | Review queue with JSON validation |
 | [`scripts/classify_file.py`](scripts/classify_file.py) | File sensitivity classifier |
 | [`scripts/rules_engine.py`](scripts/rules_engine.py) | Declarative rule evaluator |
@@ -174,8 +177,9 @@ Layer 6: Measurement         (scripts/metrics.py + calibration.py + trust.py)
 | [`scripts/metrics.py`](scripts/metrics.py) | Value stream measurement |
 | [`scripts/dashboard.py`](scripts/dashboard.py) | Andon board |
 | [`scripts/calibration.py`](scripts/calibration.py) | Proof-wrong hypothesis tracking |
-| [`scripts/ceremony.py`](scripts/ceremony.py) | Heijunka — right-sized ceremony |
+| [`scripts/ceremony.py`](scripts/ceremony.py) | Heijunka — right-sized ceremony (content-type aware) |
 | [`scripts/root_cause.py`](scripts/root_cause.py) | 5-Whys |
+| [`docs/templates/`](docs/templates/) | Framework asset corpus — review-memo, task-spec, calibration-traps, testing-conventions, escalation-criteria, phase-retrospective templates |
 
 ### Toyota principles → framework mechanisms
 
@@ -209,8 +213,9 @@ Delegation          Tracking
   override <path>
 
 Operations
-  ci                  sync            Framework sync
-  setup               status          Quick status
+  ci                  audit           Proactive infrastructure audit
+  setup               sync            Framework sync
+                      status          Quick status
 ```
 
 ## Metrics & measurement
@@ -275,6 +280,7 @@ The framework has been through a measurement-gated evolution from v2.0 to v2.2, 
 | E1 | Migrate protocol to Pydantic v2? | Done — one source of truth | — |
 | E6 | Python hardening sweep | ruff + mypy strict + pre-commit + encoding audit | — |
 | E7 | Do we need a Rust parallel dispatcher? | **NO** — GIL is fine for I/O-bound worker API calls | [`docs/decisions/phase-E7.md`](docs/decisions/phase-E7.md) |
+| E8 | Field-evidence-driven framework evolution from job-platform Phase 1 | Five-session arc: bug parity, calibration, worker-genericization, asset corpus, proactive audit | [`docs/retrospectives/phase-1-decomposition.md`](docs/retrospectives/phase-1-decomposition.md) |
 
 Full roadmap in [`.rsi/design/EVOLUTION_PLAN.md`](.rsi/design/EVOLUTION_PLAN.md). Stack rationale in [`STACK_EVOLUTION.md`](STACK_EVOLUTION.md).
 
@@ -282,6 +288,7 @@ Full roadmap in [`.rsi/design/EVOLUTION_PLAN.md`](.rsi/design/EVOLUTION_PLAN.md)
 
 | Version | Change |
 |---|---|
+| v2.7 | Multi-session arc closing the job-platform Phase 1 retrospective: bug parity (raw-response sidecar, delimiter parser fallback, diff-scoped placeholder scan, per-worker temperature + max_output_lines, YAML inline-comment strip); Module C argv crash empirically resolved as vestigial; ceremony classifier content-type aware (pure-docs commits no longer over-scope by line count); pre_commit_strictness configuration; Module B programmatic mode via `--findings-file`; nested YAML flow-style parsing; per-worker `client_timeout_seconds` / `max_retries` / `top_p` / `output_format_preference`; `WorkerProfile` dataclass consolidating 12 per-worker fields; Kimi K2.6 endpoint correction (api.moonshot.ai) + thinking-mode default for code production with `reasoning_content` sidecar capture; `kimi-instant` variant for surgical-edit / pure-deletion; framework asset corpus at `docs/templates/` (review-memo, task-spec, calibration-traps, testing-conventions, escalation-criteria, phase-retrospective); `rsi audit` subcommand for proactive infrastructure-gap detection. |
 | v2.6 | Dual-worker support: Kimi (Moonshot AI) added alongside MiniMax. Claude routes tasks per-spec via `"worker"` field; unrouted tasks distribute round-robin across available workers. Delegation gate fires on either `MINIMAX_API_KEY` or `KIMI_API_KEY`. Worker strengths documented in `architecture.yaml` and `DELEGATION_GUIDE.md`. |
 | v2.5 | Rules engine fail-closed (raises `RulesFileMissing` instead of silently returning empty rules → all gates passed). `framework_sync.py` now copies `.rsi/rules.yaml`, `.rsi/architecture.yaml`, `.rsi/DELEGATION_GUIDE.md` on `--pull` without touching project-specific `.rsi/tasks/` or `.rsi/overrides/`. |
 | v2.4 | Version-drift guard in `framework_sync.py`: `--status`/`--check` print red `DRIFT:` warning when FRAMEWORK.md and README.md Status lines diverge |
