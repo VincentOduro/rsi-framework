@@ -11,7 +11,7 @@ Nobody touches files except the bus, and the bus enforces RSI rules.
 from datetime import UTC, datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class TaskType(str, Enum):
@@ -27,6 +27,11 @@ class Decision(str, Enum):
     ACCEPT = "accept"
     REJECT = "reject"
     REVISE = "revise"
+
+
+class Capability(str, Enum):
+    TEXT = "text"
+    IMAGE = "image"
 
 
 class ChangeAction(str, Enum):
@@ -46,6 +51,10 @@ class TaskSpec(BaseModel):
     acceptance_criteria: list[str]
     proof_wrong: str
     constraints: list[str] = Field(default_factory=list)
+    task_kind: str = "code"
+    image_aspect_ratio: str = "1:1"
+    image_outputs: list[str] = Field(default_factory=list)
+    image_model: str = "image-01"
 
     model_config = ConfigDict(extra="allow")
 
@@ -63,6 +72,29 @@ class TaskSpec(BaseModel):
             raise ValueError("List must have at least one item")
         return v
 
+    @model_validator(mode="after")
+    def _check_image_fields(self):
+        if self.task_kind == "image":
+            if not self.image_outputs:
+                raise ValueError("image_outputs must be non-empty when task_kind is 'image'")
+            if len(self.files_to_modify) != len(self.image_outputs):
+                raise ValueError("files_to_modify and image_outputs must have the same length")
+            if set(self.files_to_modify) != set(self.image_outputs):
+                raise ValueError("files_to_modify and image_outputs must contain the same items")
+        return self
+
+
+class ImageOutput(BaseModel):
+    path: str
+    request_id: str = ""
+    prompt: str = ""
+    model: str = ""
+    aspect_ratio: str = ""
+    bytes: int = 0
+    url: str = ""
+
+    model_config = ConfigDict(extra="allow")
+
 
 class WorkerResult(BaseModel):
     """Models .memory/reviews/results/TASK-NNN.json (per scripts/delegate.py call_worker)."""
@@ -74,6 +106,7 @@ class WorkerResult(BaseModel):
     tokens_used: int = 0
     latency_seconds: float = 0.0
     error: str = ""
+    image_outputs: list[ImageOutput] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="allow")
 
