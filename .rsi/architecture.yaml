@@ -128,12 +128,29 @@ worker_api:
 #                              still runs so no billed output is lost to a mismatch.
 #   top_p                    — nucleus sampling parameter (default 1.0 per SDK).
 #                              Kimi K2.6 vendor recommends 0.95 for both modes.
+#   max_concurrency          — per-API-key in-flight call cap (default 10).
+#                              delegate_parallel builds one semaphore per env_key
+#                              and pool size = sum of available workers' caps.
+#                              Workers sharing an env_key share the same slot
+#                              budget (the larger cap wins). Tuned defaults:
+#                              minimax 20 (E7-measured), kimi 5 (thinking is
+#                              slow), kimi-instant 10. Override only if vendor
+#                              rate-limits surface as 429s.
+#   capability               — "text" (default) or "image". text → call_worker
+#                              uses chat.completions and expects JSON-with-
+#                              changes. image → call_image_worker POSTs to
+#                              image_endpoint and writes binary outputs
+#                              listed in TaskSpec.image_outputs.
+#   image_endpoint           — path appended to base_url for image workers
+#                              (default "/image_generation"). Ignored when
+#                              capability != "image".
 workers:
   minimax:
     provider: "minimax"
     base_url: "https://api.minimaxi.chat/v1"
     model: "MiniMax-M2.7"
     max_tokens: 32768
+    max_concurrency: 20
     # Legacy server-side hint; preserved for backward compatibility.
     # NB: prior to Session 3 this field was parsed but not wired into the
     # OpenAI client. Session 3's WorkerProfile uses it as a fallback for
@@ -183,6 +200,7 @@ workers:
     timeout_seconds: 120
     client_timeout_seconds: 1800
     max_retries: 3
+    max_concurrency: 5
     extra_body: {"thinking": {"type": "enabled"}}
     env_key: "KIMI_API_KEY"
 
@@ -207,5 +225,25 @@ workers:
     timeout_seconds: 120
     client_timeout_seconds: 1800
     max_retries: 3
+    max_concurrency: 10
     extra_body: {"thinking": {"type": "disabled"}}
     env_key: "KIMI_API_KEY"
+
+  # Image-generation worker. Routed to when TaskSpec.task_kind == "image".
+  # Endpoint is NOT OpenAI-compatible — delegate.call_image_worker bypasses
+  # the OpenAI SDK and POSTs to {base_url}{image_endpoint} with native shape.
+  # Vendor returns presigned OSS URLs (Expires ~30 days); the worker
+  # downloads each URL synchronously into the paths listed in
+  # TaskSpec.image_outputs before returning. max_concurrency is conservative
+  # (5) because image gen is ~16s per call and download adds I/O.
+  minimax-image:
+    provider: "minimax"
+    base_url: "https://api.minimaxi.chat/v1"
+    capability: "image"
+    image_endpoint: "/image_generation"
+    model: "image-01"
+    timeout_seconds: 120
+    client_timeout_seconds: 180
+    max_retries: 2
+    max_concurrency: 5
+    env_key: "MINIMAX_API_KEY"

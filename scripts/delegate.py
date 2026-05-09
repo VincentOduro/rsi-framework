@@ -58,6 +58,13 @@ _worker_config_cache: dict[str, dict] | None = None
 _active_worker: str | None = None  # Set by --worker flag in main()
 _round_robin_index: int = 0  # Global counter for round-robin routing
 
+# Per-API-key concurrency gate. Built by delegate_parallel from each available
+# worker's WorkerProfile.max_concurrency, keyed by env_key (NOT worker name) so
+# kimi + kimi-instant share one budget against the same KIMI_API_KEY. Empty in
+# the single-task path — only delegate_parallel populates it.
+import threading  # noqa: E402  (placed near the state it guards)
+_worker_semaphores: dict[str, threading.Semaphore] = {}
+
 
 @dataclass(frozen=True)
 class WorkerProfile:
@@ -86,6 +93,9 @@ class WorkerProfile:
     max_retries: int = 2
     extra_body: dict | None = None
     output_format_preference: str = "either"
+    max_concurrency: int = 10  # per-env_key in-flight call cap; see delegate_parallel
+    capability: str = "text"  # "text" → chat.completions; "image" → image_endpoint
+    image_endpoint: str = "/image_generation"  # appended to base_url for image workers
 
     @classmethod
     def from_config(cls, name: str, config: dict) -> "WorkerProfile":
@@ -167,6 +177,9 @@ class WorkerProfile:
             output_format_preference=str(
                 config.get("output_format_preference", "either")
             ).lower(),
+            max_concurrency=_int("max_concurrency", 10),
+            capability=str(config.get("capability", "text")).lower(),
+            image_endpoint=str(config.get("image_endpoint", "/image_generation")),
         )
 
 
@@ -349,27 +362,51 @@ def _get_available_workers() -> list[str]:
     return available
 
 
+def _required_capability(task: dict) -> str:
+    """Return the capability a task needs based on its kind. Default 'text'."""
+    kind = task.get("task_kind", "code")
+    return "image" if kind == "image" else "text"
+
+
 def _resolve_worker(task: dict) -> str | None:
     """Pick the worker for a task.
 
     Priority:
     1. task["worker"] — explicit routing decision by Claude
     2. _active_worker  — --worker CLI flag (single-task override)
-    3. Round-robin across available workers (auto-distribution)
+    3. Round-robin across capability-matching available workers
     4. None — fall back to worker_api default
+
+    For image tasks (task_kind=='image'), round-robin filters available
+    workers down to those with capability=='image'. Explicit per-task or
+    CLI routing trusts the user — no capability filtering applied. This
+    keeps the human in control while preventing accidental round-robin
+    onto a text worker for image jobs.
     """
     global _round_robin_index
 
-    # Explicit per-task routing (Claude's decision)
+    # Explicit per-task routing (Claude's decision) — trust it
     if task.get("worker"):
         return task["worker"]
 
-    # CLI override
+    # CLI override — trust it
     if _active_worker:
         return _active_worker
 
-    # Round-robin across available workers
+    # Round-robin, filtered by required capability
+    needed = _required_capability(task)
     available = _get_available_workers()
+    if needed == "image":
+        # Filter to image-capable workers only. _load_worker_profile may raise
+        # for malformed entries; skip those rather than aborting routing.
+        filtered = []
+        for w in available:
+            try:
+                if _load_worker_profile(w).capability == "image":
+                    filtered.append(w)
+            except (ValueError, KeyError):
+                continue
+        available = filtered
     if not available:
         return None
     worker = available[_round_robin_index % len(available)]
@@ -472,6 +509,23 @@ def validate_task(task: dict) -> list[str]:
             continue
         if not safe.exists():
             issues.append(f"File to read does not exist: {clean_path}")
+
+    # Image tasks: skip the line-count threshold check (it's text-specific)
+    # and validate image_outputs ⊆ files_to_modify so the existing pre-edit
+    # hook trail covers every binary the worker is about to write. The
+    # protocol's model_validator enforces set equality; this is a defense-
+    # in-depth pass for legacy specs that bypass model_validate.
+    if task.get("task_kind") == "image":
+        image_outputs = task.get("image_outputs") or []
+        if not image_outputs:
+            issues.append("Image task requires non-empty 'image_outputs'")
+        modify_set = set(task.get("files_to_modify") or [])
+        for raw_path in image_outputs:
+            if raw_path not in modify_set:
+                issues.append(
+                    f"Image output {raw_path!r} must also appear in files_to_modify"
+                )
+        return issues
 
     # F9 — Output-size warning threshold read from WorkerProfile. Falls back
     # to 500 when no worker is declared on the task (legacy path).
@@ -866,12 +920,186 @@ def _repair_truncated_json(fragment: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Image-generation worker (capability="image")
+# ---------------------------------------------------------------------------
+
+
+def _post_json(url: str, headers: dict, body: dict, timeout: int) -> dict:
+    """POST JSON, return parsed JSON response. Raises on HTTP error."""
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={**headers, "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            f"HTTP {exc.code}: {exc.read().decode('utf-8', errors='replace')[:500]}"
+        ) from exc
+
+
+def _download_to_path(url: str, target: Path, timeout: int) -> int:
+    """Fetch URL into target. Returns bytes written."""
+    import urllib.request
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with urllib.request.urlopen(url, timeout=timeout) as resp:
+        data = resp.read()
+    target.write_bytes(data)
+    return len(data)
+
+
+def call_image_worker(task: dict, profile: WorkerProfile) -> dict:
+    """Generate images via the configured image endpoint.
+
+    Wire format is vendor-specific (NOT OpenAI-compatible for MiniMax). The
+    worker:
+      1. POSTs {prompt, model, aspect_ratio, n, response_format} to
+         {base_url}{image_endpoint}.
+      2. Validates `base_resp.status_code == 0` (MiniMax success convention).
+      3. Downloads each returned URL synchronously into the corresponding
+         path from task["image_outputs"]. Order is positional: URL[i] →
+         image_outputs[i].
+      4. Returns a WorkerResult-shaped dict with image_outputs populated and
+         changes={} (image worker writes binary, not text).
+
+    Path safety: every output path is run through _safe_project_path before
+    writing — a malformed task spec cannot exfiltrate to /etc or %APPDATA%.
+
+    Failure modes:
+      - Vendor non-zero status_code → returns {"error": "...vendor..."}
+      - Count mismatch (urls returned ≠ image_outputs declared) → error
+      - Download failure → partial outputs are deleted, error returned
+    """
+    api_key = _get_api_key({"env_key": profile.env_key})
+    image_outputs_paths = task.get("image_outputs") or []
+    if not image_outputs_paths:
+        return {
+            "error": "Image task missing 'image_outputs' (list of destination paths).",
+            "latency_seconds": 0.0,
+            "worker": profile.provider,
+        }
+
+    # Validate every destination path before calling the API. Cheap and
+    # catches attempts to escape PROJECT_ROOT before we burn vendor tokens.
+    safe_targets: list[Path] = []
+    for raw_path in image_outputs_paths:
+        try:
+            safe_targets.append(_safe_project_path(raw_path))
+        except UnsafePathError as exc:
+            return {
+                "error": f"Unsafe image_outputs path: {exc}",
+                "latency_seconds": 0.0,
+                "worker": profile.provider,
+            }
+
+    body = {
+        "model": task.get("image_model") or profile.model,
+        "prompt": task.get("instruction") or task.get("description") or "",
+        "aspect_ratio": task.get("image_aspect_ratio", "1:1"),
+        "n": len(image_outputs_paths),
+        "response_format": "url",
+    }
+    url = profile.base_url.rstrip("/") + profile.image_endpoint
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    start = time.time()
+    try:
+        data = _post_json(url, headers, body, timeout=profile.client_timeout_seconds)
+    except RuntimeError as exc:
+        return {
+            "error": str(exc),
+            "latency_seconds": round(time.time() - start, 1),
+            "worker": profile.provider,
+        }
+    except Exception as exc:
+        return {
+            "error": f"network: {type(exc).__name__}: {exc}",
+            "latency_seconds": round(time.time() - start, 1),
+            "worker": profile.provider,
+        }
+
+    base_resp = data.get("base_resp") or {}
+    if base_resp.get("status_code") != 0:
+        return {
+            "error": f"vendor status_code={base_resp.get('status_code')} msg={base_resp.get('status_msg')!r}",
+            "latency_seconds": round(time.time() - start, 1),
+            "worker": profile.provider,
+        }
+
+    payload = data.get("data") or {}
+    urls = payload.get("image_urls") or []
+    if len(urls) != len(image_outputs_paths):
+        return {
+            "error": (
+                f"Vendor returned {len(urls)} url(s); task declared "
+                f"{len(image_outputs_paths)} image_outputs path(s)"
+            ),
+            "latency_seconds": round(time.time() - start, 1),
+            "worker": profile.provider,
+        }
+
+    request_id = data.get("id", "")
+    image_outputs: list[dict] = []
+    written: list[Path] = []
+    for raw_path, target, image_url in zip(image_outputs_paths, safe_targets, urls):
+        try:
+            n_bytes = _download_to_path(image_url, target, timeout=profile.client_timeout_seconds)
+        except Exception as exc:
+            # Roll back partial writes so apply_changes never sees a
+            # half-completed image set.
+            for prior in written:
+                try:
+                    prior.unlink()
+                except OSError:
+                    pass
+            return {
+                "error": f"Download failed for {raw_path}: {type(exc).__name__}: {exc}",
+                "latency_seconds": round(time.time() - start, 1),
+                "worker": profile.provider,
+            }
+        written.append(target)
+        image_outputs.append(
+            {
+                "path": raw_path,
+                "request_id": request_id,
+                "prompt": body["prompt"],
+                "model": body["model"],
+                "aspect_ratio": body["aspect_ratio"],
+                "bytes": n_bytes,
+                "url": image_url,
+            }
+        )
+
+    return {
+        "changes": {},  # image worker writes binary, not text changes
+        "image_outputs": image_outputs,
+        "proof_wrong": task.get("proof_wrong", ""),
+        "notes": f"Generated {len(image_outputs)} image(s) via {profile.provider}",
+        "raw_response": json.dumps(data)[:2000],
+        "tokens_used": 0,
+        "latency_seconds": round(time.time() - start, 1),
+        "worker": profile.provider,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Worker API call
 # ---------------------------------------------------------------------------
 
 
 def call_worker(task: dict, revision_instruction: str = "", worker_name: str | None = None) -> dict:
     """Call the worker model API and return parsed response.
+
+    Dispatches on profile.capability:
+      - "text"  → chat.completions (existing path)
+      - "image" → call_image_worker (downloads binaries to image_outputs)
 
     worker_name: explicit worker to use (overrides _active_worker and task["worker"]).
                  If None, _resolve_worker(task) is called to determine routing.
@@ -890,6 +1118,14 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
     """
     resolved = worker_name if worker_name is not None else _resolve_worker(task)
     profile = _load_worker_profile(resolved)
+
+    # Image-capable workers bypass the OpenAI SDK entirely — vendor image
+    # endpoints aren't OpenAI-compatible, and the response shape is binary
+    # rather than text-with-changes. Routed in here so callers can ignore
+    # the dispatch.
+    if profile.capability == "image":
+        return call_image_worker(task, profile)
+
     api_key = _get_api_key({"env_key": profile.env_key})
 
     prompt = build_worker_prompt(task)
@@ -1150,6 +1386,39 @@ Tokens: {result.get("tokens_used", "?")} | Latency: {result.get("latency_seconds
     return review_path
 
 
+def _apply_image_outputs(task: dict, result: dict) -> list[str]:
+    """Image-task apply: files were already written by call_image_worker
+    (it has to download synchronously while the URL is still valid). This
+    just verifies they exist + are non-empty, then git-checkpoints.
+
+    Quality ratchet for images skips self_verify (a JPEG isn't valid
+    Python). Replaces with: file exists ∧ size > 0. Visual quality is the
+    overlord's job at review time.
+    """
+    applied: list[str] = []
+    for entry in result.get("image_outputs", []):
+        raw_path = entry.get("path") if isinstance(entry, dict) else None
+        if not raw_path:
+            continue
+        try:
+            full_path = _safe_project_path(raw_path)
+        except UnsafePathError as exc:
+            print(f"[RSI] REFUSED unsafe image path: {exc}", file=sys.stderr)
+            continue
+        if not full_path.exists() or full_path.stat().st_size == 0:
+            print(f"[RSI] Image output missing or empty: {raw_path}", file=sys.stderr)
+            continue
+        applied.append(raw_path)
+
+    if not applied:
+        return []
+
+    task_id = task.get("id", "unknown")
+    print(f"[RSI] Quality ratchet: image bytes verified for {len(applied)} file(s)")
+    _git_checkpoint(task_id, applied)
+    return applied
+
+
 def apply_changes(task: dict, result: dict) -> list[str]:
     """Apply worker changes to disk with quality ratchet.
 
@@ -1157,8 +1426,14 @@ def apply_changes(task: dict, result: dict) -> list[str]:
     If verify passes -> checkpoint commit. If fails -> revert all changes.
     Quality only goes up, never down.
 
+    Image tasks (task_kind=='image') skip the text-oriented ratchet and use
+    _apply_image_outputs — files are already on disk from call_image_worker.
+
     Also handles MiniMax double-escaped newlines.
     """
+    if task.get("task_kind") == "image" or result.get("image_outputs"):
+        return _apply_image_outputs(task, result)
+
     applied = []
     original_contents = {}
 
@@ -1303,21 +1578,63 @@ def log_delegation(task: dict, result: dict, verdict: str = "PENDING") -> None:
 # ---------------------------------------------------------------------------
 
 
-def delegate_parallel(task_files: list[str], max_workers: int = 10) -> list[dict]:
-    """Send tasks to MiniMax with DAG-aware parallel execution.
+def delegate_parallel(
+    task_files: list[str], max_workers: int | None = None
+) -> list[dict]:
+    """Send tasks to available workers with DAG-aware parallel execution.
 
     Respects both explicit depends_on and implicit file overlap dependencies.
     Tasks are sorted into execution layers — each layer runs in parallel,
     layers execute sequentially.
 
-    `max_workers` was raised from 3 to 10 after Phase E7 measured 99.96%
-    thread-pool efficiency at 20 concurrent workers with zero GIL pressure
-    (see docs/decisions/phase-E7.md). If MiniMax throttles concurrent
-    requests from one API key, lower this with --workers.
+    Concurrency model (Session 7):
+      - Pool size auto-scales to the sum of available workers' max_concurrency.
+        With minimax (20) + kimi (5) both keyed in env, pool = 25 by default.
+        `max_workers` argument, when not None, caps the pool but does NOT
+        relax per-worker semaphores (vendor rate limits still bind).
+      - Per-API-key semaphores throttle in-flight calls per env_key. kimi and
+        kimi-instant share KIMI_API_KEY → one semaphore guards both.
+      - When pool size > sum of caps (e.g. user passes --workers 50), threads
+        block on semaphore.acquire and the effective concurrency stays at the
+        sum of caps. Per E7 (99.96% efficiency at 20 with 0 GIL pressure),
+        threads waiting on a semaphore cost essentially nothing.
+
+    Phase E7 measured 99.96% thread-pool efficiency at 20 concurrent workers
+    with zero GIL pressure (see docs/decisions/phase-E7.md). Raise per-worker
+    max_concurrency in architecture.yaml only if vendor rate-limits surface
+    as 429s.
 
     Inspired by ccswarm (parallelism) and OpenMultiAgent (task DAG).
     """
     import concurrent.futures
+
+    # Build per-env_key semaphores from each available worker's max_concurrency.
+    # Multiple workers can share an env_key (kimi + kimi-instant share
+    # KIMI_API_KEY); the larger cap wins so no worker is throttled below its
+    # configured budget. Stored module-side so _execute_single can reach them
+    # without threading the dict through every callsite.
+    global _worker_semaphores
+    _worker_semaphores = {}
+    available_workers = _get_available_workers()
+    env_key_caps: dict[str, int] = {}
+    for w_name in available_workers:
+        try:
+            profile = _load_worker_profile(w_name)
+        except (ValueError, KeyError):
+            continue
+        prior = env_key_caps.get(profile.env_key, 0)
+        env_key_caps[profile.env_key] = max(prior, profile.max_concurrency)
+    for env_key, cap in env_key_caps.items():
+        _worker_semaphores[env_key] = threading.Semaphore(cap)
+
+    pool_budget = sum(env_key_caps.values()) if env_key_caps else 10
+    if max_workers is None:
+        pool_size = pool_budget
+    else:
+        # Explicit --workers caps the pool but never raises beyond budget × 2
+        # (a generous buffer for queueing without unbounded thread growth).
+        pool_size = min(max_workers, pool_budget * 2) if pool_budget else max_workers
+    pool_size = max(1, pool_size)
 
     # Load all task specs
     tasks = []
@@ -1348,6 +1665,9 @@ def delegate_parallel(task_files: list[str], max_workers: int = 10) -> list[dict
 
     task_map = {t["id"]: t for t in tasks}
     print(f"[RSI] Parallel delegation: {len(tasks)} tasks, {len(layers)} layer(s)")
+    if env_key_caps:
+        budget_str = ", ".join(f"{k}={v}" for k, v in sorted(env_key_caps.items()))
+        print(f"[RSI] Concurrency budget: pool={pool_size}, per-key=[{budget_str}]")
     for i, layer in enumerate(layers):
         print(f"  Layer {i}: {', '.join(layer)}")
 
@@ -1366,8 +1686,10 @@ def delegate_parallel(task_files: list[str], max_workers: int = 10) -> list[dict
             results = _execute_group(layer_tasks, layer_idx + 1, len(layers))
             all_results.extend(results)
         else:
-            # Multiple tasks — run in parallel
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            # Multiple tasks — run in parallel. Pool size is the auto-scaled
+            # budget; per-env_key semaphores (acquired inside _execute_single)
+            # enforce vendor rate limits.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=pool_size) as pool:
                 futures = {}
                 for task in layer_tasks:
                     future = pool.submit(_execute_single, task)
@@ -1391,11 +1713,19 @@ def delegate_parallel(task_files: list[str], max_workers: int = 10) -> list[dict
 
 
 def _execute_single(task: dict) -> dict:
-    """Execute a single task (for parallel dispatch)."""
+    """Execute a single task (for parallel dispatch).
+
+    Acquires the per-env_key semaphore around the API call so concurrent
+    callers to the same vendor never exceed that vendor's max_concurrency.
+    The semaphore is a no-op when delegate_parallel didn't populate it
+    (single-task path).
+    """
     task_id = task.get("id", "?")
     routed_worker = _resolve_worker(task)
     route_reason = "explicit" if task.get("worker") else ("cli" if _active_worker else "round-robin")
-    print(f"  [{task_id}] → {routed_worker or 'default'} ({route_reason})")
+    # ASCII arrow — Windows cp1252 stdout chokes on U+2192 inside threads,
+    # surfacing as a UnicodeEncodeError that the future reports as task error.
+    print(f"  [{task_id}] -> {routed_worker or 'default'} ({route_reason})")
 
     if os.environ.get("RSI_SKIP_API_CHECK") != "1":
         spec_path = TASKS_DIR / f"{task_id}.json"
@@ -1409,7 +1739,22 @@ def _execute_single(task: dict) -> dict:
                     "output": api_output,
                 }
 
-    result = call_worker(task, worker_name=routed_worker)
+    # Resolve env_key for semaphore lookup. Failures fall through to an
+    # uncapped call — preserves single-task behavior and avoids breaking
+    # legacy specs that route to a worker not in architecture.yaml.
+    semaphore = None
+    if routed_worker and _worker_semaphores:
+        try:
+            env_key = _load_worker_profile(routed_worker).env_key
+            semaphore = _worker_semaphores.get(env_key)
+        except (ValueError, KeyError):
+            semaphore = None
+
+    if semaphore is not None:
+        with semaphore:
+            result = call_worker(task, worker_name=routed_worker)
+    else:
+        result = call_worker(task, worker_name=routed_worker)
     if result.get("error"):
         return {"task_id": task_id, "status": "failed", "error": result["error"]}
 
@@ -1623,20 +1968,26 @@ def cmd_delegate(args):
         applied = apply_changes(task, result)
         print(f"Applied changes: {', '.join(applied)}")
 
-        # Run self-verify
-        import subprocess
-
-        verify = subprocess.run(
-            [sys.executable, "scripts/self_verify.py", "--files"] + applied + ["--skip-tests"],
-            cwd=PROJECT_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        if verify.returncode == 0:
-            print("Self-verify: PASSED")
+        # Image tasks already passed _apply_image_outputs's bytes-verified
+        # quality ratchet inside apply_changes. Re-running self_verify here
+        # would try to UTF-8-decode JPEGs and falsely fail. Skip.
+        if task.get("task_kind") == "image":
+            print("Self-verify: skipped (image task — bytes-verified by apply_changes)")
         else:
-            print("Self-verify: FAILED")
-            print(verify.stdout[-500:] if verify.stdout else verify.stderr[-500:])
+            # Run self-verify on text outputs
+            import subprocess
+
+            verify = subprocess.run(
+                [sys.executable, "scripts/self_verify.py", "--files"] + applied + ["--skip-tests"],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+            )
+            if verify.returncode == 0:
+                print("Self-verify: PASSED")
+            else:
+                print("Self-verify: FAILED")
+                print(verify.stdout[-500:] if verify.stdout else verify.stderr[-500:])
     else:
         print("Dry-run mode. Use --apply to write changes to disk.")
 
@@ -1683,8 +2034,13 @@ def main():
     parser.add_argument(
         "--workers",
         type=int,
-        default=10,
-        help="Max parallel workers (default: 10; lower if MiniMax rate-limits)",
+        default=None,
+        help=(
+            "Override pool size. Default: auto-scale to sum of available "
+            "workers' max_concurrency (architecture.yaml). With minimax+kimi "
+            "keyed in env, pool defaults to 25 (20+5). Per-env_key semaphores "
+            "still enforce vendor rate limits regardless of this value."
+        ),
     )
     parser.add_argument(
         "--no-api-check",
