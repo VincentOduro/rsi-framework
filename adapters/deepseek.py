@@ -37,7 +37,7 @@ class DeepSeekAdapter(BaseAdapter):
         return {
             "deepseek_wrapper.sh": self._generate_shell_wrapper(),
             "rsi_tools.py": self._generate_tool_module(),
-            ".opencode/instructions.md": self._generate_instructions(),
+            ".opencode/instructions.md": self._generate_instructions()
         }
 
     def _generate_shell_wrapper(self) -> str:
@@ -45,7 +45,7 @@ class DeepSeekAdapter(BaseAdapter):
 # RSI Framework — Shell wrapper for DeepSeek V4
 #
 # Source this file to activate enforcement in your shell:
-#   source kimi_wrapper.sh
+#   source deepseek_wrapper.sh
 #
 # Intercepts file operations so the RSI framework can enforce
 # read-before-edit discipline regardless of which AI model is driving.
@@ -169,7 +169,7 @@ __all__ = ["RSISession"]
             "Read the file first, then edit it.",
             "",
             "## Rules",
-            "",
+            ""
         ]
         for rule in rules.RULES:
             lines.append(f"### {rule['name']}")
@@ -184,6 +184,6 @@ __all__ = ["RSISession"]
             "",
             "## Response format",
             "Return ONLY valid JSON matching the WorkerResult schema.",
-            "No prose outside the JSON block.",
+            "No prose outside the JSON block."
         ]
         return "\n".join(lines) + "\n"
