@@ -236,14 +236,11 @@ def test_deepseek_pro_thinking_omit_temperature(tmp_path):
           deepseek-pro-thinking:
             provider: deepseek
             base_url: https://api.deepseek.com
-            model: deepseek-reasoner
+            model: deepseek-v4-pro
             env_key: DEEPSEEK_API_KEY
             omit_temperature: true
             max_tokens: 32768
-            extra_body:
-              thinking:
-                type: enabled
-                reasoning_effort: max
+            extra_body: {"thinking": {"type": "enabled", "reasoning_effort": "max"}}
         """,
     )
     from scripts.delegate import _load_worker_profile

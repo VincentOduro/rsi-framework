@@ -96,6 +96,9 @@ class WorkerProfile:
     max_concurrency: int = 10  # per-env_key in-flight call cap; see delegate_parallel
     capability: str = "text"  # "text" → chat.completions; "image" → image_endpoint
     image_endpoint: str = "/image_generation"  # appended to base_url for image workers
+    # When True, temperature and top_p are omitted from the chat.completions call.
+    # Required for providers (e.g. DeepSeek thinking mode) that reject those params.
+    omit_temperature: bool = False
 
     @classmethod
     def from_config(cls, name: str, config: dict) -> "WorkerProfile":
@@ -180,6 +183,7 @@ class WorkerProfile:
             max_concurrency=_int("max_concurrency", 10),
             capability=str(config.get("capability", "text")).lower(),
             image_endpoint=str(config.get("image_endpoint", "/image_generation")),
+            omit_temperature=bool(config.get("omit_temperature", False)),
         )
 
 
@@ -1167,8 +1171,11 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
         create_kwargs: dict = {}
         if profile.extra_body:
             create_kwargs["extra_body"] = profile.extra_body
-        if profile.top_p is not None:
-            create_kwargs["top_p"] = profile.top_p
+        # omit_temperature=True: provider rejects temperature/top_p (e.g. DeepSeek thinking mode).
+        if not profile.omit_temperature:
+            create_kwargs["temperature"] = profile.temperature
+            if profile.top_p is not None:
+                create_kwargs["top_p"] = profile.top_p
         response = client.chat.completions.create(
             model=profile.model,
             messages=[
@@ -1176,7 +1183,6 @@ def call_worker(task: dict, revision_instruction: str = "", worker_name: str | N
                 {"role": "user", "content": prompt},
             ],
             max_tokens=profile.max_tokens,
-            temperature=profile.temperature,
             **create_kwargs,
         )
 

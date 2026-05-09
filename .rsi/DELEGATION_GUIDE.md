@@ -50,17 +50,20 @@ python3 scripts/rsi.py ci             # CI gate
 
 ## Worker Selection
 
-Both MiniMax and Kimi are active workers. Claude picks the worker per task by setting `"worker"` in the task spec. If omitted, tasks round-robin across available workers.
+Active workers: MiniMax, Kimi, and DeepSeek (V4). Claude picks the worker per task by setting `"worker"` in the task spec. If omitted, tasks round-robin across available workers.
 
-| Use `minimax` when | Use `kimi` when |
-|---|---|
-| Task needs >128k context (whole-codebase scans) | Task is a targeted single-file change |
-| Bulk generation (many files, boilerplate) | Strong reasoning required (algorithmic logic, API use) |
-| Multi-file refactor across large surface area | Writing tests that require precise symbol resolution |
-| Long-context analysis (reading entire module trees) | Bug fixes needing focused cause-effect analysis |
-| Throughput matters (large parallel batch) | Quality matters more than speed |
+| Worker | Best for | Notes |
+|---|---|---|
+| `minimax` | >128k context scans, whole-codebase reads, large parallel batches | Highest throughput (max_concurrency 20) |
+| `kimi` | Targeted single-file changes, algorithmic logic, API-sensitive code | Thinking mode on by default; reasoning sidecar written |
+| `kimi-instant` | Surgical deletes/renames where thinking is wasteful overhead | Same quality cap, faster, no reasoning |
+| `deepseek-flash` | Bulk refactors, doc gen, multi-file, latency-sensitive tasks | Cheap ($0.14/$0.28 per 1M), fast, 1M context |
+| `deepseek-pro` | Precision edits, quality-sensitive, targeted logic without reasoning overhead | Higher capability; no chain-of-thought |
+| `deepseek-pro-thinking` | Complex bugs, architectural reasoning, deep chain-of-thought needed | Slower; writes reasoning sidecar; omits temperature (vendor constraint) |
 
-**Decision rule**: if the task's `files_to_read` total would exceed ~100k tokens, prefer `minimax`. If the task requires precise reasoning over a small focused surface, prefer `kimi`. When uncertain, omit `worker` and let round-robin decide.
+**Decision rule**: large context or bulk volume → `minimax` or `deepseek-flash`. Focused precision → `kimi` or `deepseek-pro`. Deep reasoning needed → `kimi` (thinking on) or `deepseek-pro-thinking`. When uncertain, omit `worker` and let round-robin decide.
+
+DeepSeek workers all share `DEEPSEEK_API_KEY`. The concurrency semaphore is keyed per env_key, so their in-flight calls pool together.
 
 ## File Sensitivity
 
@@ -87,7 +90,7 @@ Both MiniMax and Kimi are active workers. Claude picks the worker per task by se
 }
 ```
 
-`worker` is optional. Valid values: `"minimax"`, `"kimi"`. Omit to let the dispatcher round-robin. See **Worker Selection** above for when to prefer each.
+`worker` is optional. Valid values: `"minimax"`, `"kimi"`, `"kimi-instant"`, `"deepseek-flash"`, `"deepseek-pro"`, `"deepseek-pro-thinking"`. Omit to let the dispatcher round-robin. See **Worker Selection** above for when to prefer each.
 
 ### Task types
 

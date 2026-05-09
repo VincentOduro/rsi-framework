@@ -2,13 +2,13 @@
 
 A disciplined meta-process that turns every implementation into a learning opportunity — built on Toyota Production System principles. Drops into any AI-assisted project so the agent builds under measured quality discipline and keeps improving itself.
 
-**Status:** v2.7 • **Runtime:** Python 3.11+ • **Deps:** pydantic, openai • **Tested on:** Windows 11, macOS, Linux, WSL2
+**Status:** v2.8 • **Runtime:** Python 3.11+ • **Deps:** pydantic, openai • **Tested on:** Windows 11, macOS, Linux, WSL2
 
 ---
 
 ## What This Is
 
-Most AI agents ship code fast but learn nothing. The same mistakes repeat. Quality is assumed, not measured. This framework fixes that by enforcing Toyota's manufacturing discipline on software development — and by giving you a **multi-model workflow** where a senior "overlord" model (Claude) routes work to specialized worker models (MiniMax, Kimi) so you get scale without giving up judgment.
+Most AI agents ship code fast but learn nothing. The same mistakes repeat. Quality is assumed, not measured. This framework fixes that by enforcing Toyota's manufacturing discipline on software development — and by giving you a **multi-model workflow** where a senior "overlord" model (Claude) routes work to specialized worker models (MiniMax, Kimi, DeepSeek) so you get scale without giving up judgment.
 
 - **Measure** — cycle time, first-pass yield, defect rate, trust scores
 - **Enforce** — read-before-edit, verification, delegation trails, quality gates
@@ -24,31 +24,35 @@ The core idea in v2.x: **one overlord, multiple workers, Claude decides who gets
                                   ┌─────────────────────┐
                     ┌────────────▶│  Worker: MiniMax-M2.7│
                     │  task spec  │  - 1M ctx, bulk gen  │
-┌─────────────────┐ │             │  - multi-file refactor│◀─┐
-│  Overlord       │─┤             └─────────────────────┘   │
-│  (Claude, you)  │ │                                        │ result
-│                 │ │             ┌─────────────────────┐   │
-│  - architect    │ └────────────▶│  Worker: Kimi        │◀─┘
-│  - router       │  task spec   │  - precise reasoning │
-│  - reviewer     │              │  - targeted edits    │
-└─────────────────┘              └─────────────────────┘
-         │                                ▲
-         │   .memory/reviews/pending/     │
-         └────────────────────────────────┘
+                    │             │  - multi-file refactor│
+┌─────────────────┐ │             └─────────────────────┘
+│  Overlord       │─┤             ┌─────────────────────┐
+│  (Claude, you)  │ ├────────────▶│  Worker: Kimi        │
+│                 │ │  task spec  │  - precise reasoning │
+│  - architect    │ │             │  - thinking mode     │
+│  - router       │ │             └─────────────────────┘
+│  - reviewer     │ │             ┌─────────────────────┐
+└─────────────────┘ └────────────▶│  Worker: DeepSeek V4 │
+         │           task spec    │  - flash: bulk/cheap │
+         │                        │  - pro: high quality │
+         │   .memory/reviews/     │  - thinking: CoT     │
+         └────────────────────────┘
 ```
 
 The overlord writes the task spec (`.rsi/tasks/TASK-NNN.json`), picks the right worker by setting `"worker": "kimi"` or `"worker": "minimax"` (or omits it for round-robin), sends it via `scripts/delegate.py`, reviews the output in `.memory/reviews/pending/`, and either accepts (quality-ratchet auto-commit) or rejects/revises. The framework's pre-edit hook **blocks the overlord from editing guarded files without a delegation trail** — you physically can't cheat.
 
 **Worker selection** — Claude decides per task:
 
-| Use `minimax` when | Use `kimi` (thinking-mode default) when | Use `kimi-instant` when |
-|---|---|---|
-| Task needs >128k context (whole-codebase scans) | Algorithm implementation, logic changes, test authoring | Surgical-edit / pure-deletion (byte-preservation) |
-| Bulk generation across many files | Strong reasoning required (chain-of-thought pays out) | Reasoning tokens are overhead, not signal |
-| Multi-file refactor over large surface area | Targeted single-file change with non-trivial logic | Small mechanical fixes |
-| Throughput matters in a large parallel batch | Quality matters more than per-dispatch token cost | Style-consistency drift would mask real changes |
+| Worker | Best for |
+|---|---|
+| `minimax` | >128k context scans, bulk generation, multi-file refactors, large parallel batches |
+| `kimi` | Algorithm implementation, logic changes, test authoring — thinking mode on by default |
+| `kimi-instant` | Surgical edits, pure deletions, byte-preservation — reasoning is overhead here |
+| `deepseek-flash` | Bulk refactors, doc gen, multi-file, latency-sensitive tasks (cheap: $0.14/$0.28 per 1M) |
+| `deepseek-pro` | Precision edits, quality-sensitive targeted logic without reasoning overhead |
+| `deepseek-pro-thinking` | Complex bugs, architectural reasoning, deep chain-of-thought (writes reasoning sidecar) |
 
-The `kimi` worker runs Kimi K2.6 in **thinking mode by default** (chain-of-thought before output, `reasoning_content` captured to a sidecar at `.memory/reviews/results/TASK-{ID}.reasoning.txt`). For tasks where reasoning is wasteful — surgical edits, pure deletions, byte-preservation discipline — route explicitly to `kimi-instant` (instant mode, no reasoning burn).
+Both `kimi` and `deepseek-pro-thinking` capture `reasoning_content` to a sidecar at `.memory/reviews/results/TASK-{ID}.reasoning.txt`. DeepSeek's thinking mode requires omitting `temperature` from the API call — the `omit_temperature` flag in `WorkerProfile` handles this transparently.
 
 File sensitivity is declared in [`.rsi/architecture.yaml`](.rsi/architecture.yaml):
 
@@ -67,11 +71,12 @@ python --version               # must be 3.11+
 pip install -e .               # installs pydantic + openai from pyproject.toml
 # or: pip install -e ".[dev]"  # also installs mypy, ruff, pre-commit, pip-audit, pytest
 
-export MINIMAX_API_KEY=sk-...  # MiniMax worker (optional if KIMI_API_KEY is set)
-export KIMI_API_KEY=sk-...     # Kimi worker    (optional if MINIMAX_API_KEY is set)
+export MINIMAX_API_KEY=sk-...   # MiniMax worker
+export KIMI_API_KEY=sk-...      # Kimi worker
+export DEEPSEEK_API_KEY=sk-...  # DeepSeek V4 worker (flash + pro + pro-thinking)
 ```
 
-At least one worker API key must be set. Both can be set simultaneously — Claude routes tasks to whichever model fits best.
+At least one worker API key must be set. All can be set simultaneously — Claude routes tasks to whichever model fits best.
 
 **Credential hygiene.** The framework reads API keys from the environment only — never put them in a committed file. `.env`, `*.pem`, `*.key`, `credentials.*`, and common cloud-SDK auth dirs are gitignored by default, but double-check with `git check-ignore -v <file>` before placing any secret in the project tree.
 
@@ -288,6 +293,7 @@ Full roadmap in [`.rsi/design/EVOLUTION_PLAN.md`](.rsi/design/EVOLUTION_PLAN.md)
 
 | Version | Change |
 |---|---|
+| v2.8 | DeepSeek V4 worker support: three variants (`deepseek-flash`, `deepseek-pro`, `deepseek-pro-thinking`) via OpenAI-compatible API at `api.deepseek.com`. `WorkerProfile` gains `omit_temperature` flag to handle DeepSeek thinking mode's rejection of temperature/top_p params. `deepseek-pro-thinking` captures `reasoning_content` sidecar (same path as Kimi). Worker decision table and routing docs updated. |
 | v2.7 | Multi-session arc closing the job-platform Phase 1 retrospective: bug parity (raw-response sidecar, delimiter parser fallback, diff-scoped placeholder scan, per-worker temperature + max_output_lines, YAML inline-comment strip); Module C argv crash empirically resolved as vestigial; ceremony classifier content-type aware (pure-docs commits no longer over-scope by line count); pre_commit_strictness configuration; Module B programmatic mode via `--findings-file`; nested YAML flow-style parsing; per-worker `client_timeout_seconds` / `max_retries` / `top_p` / `output_format_preference`; `WorkerProfile` dataclass consolidating 12 per-worker fields; Kimi K2.6 endpoint correction (api.moonshot.ai) + thinking-mode default for code production with `reasoning_content` sidecar capture; `kimi-instant` variant for surgical-edit / pure-deletion; framework asset corpus at `docs/templates/` (review-memo, task-spec, calibration-traps, testing-conventions, escalation-criteria, phase-retrospective); `rsi audit` subcommand for proactive infrastructure-gap detection. |
 | v2.6 | Dual-worker support: Kimi (Moonshot AI) added alongside MiniMax. Claude routes tasks per-spec via `"worker"` field; unrouted tasks distribute round-robin across available workers. Delegation gate fires on either `MINIMAX_API_KEY` or `KIMI_API_KEY`. Worker strengths documented in `architecture.yaml` and `DELEGATION_GUIDE.md`. |
 | v2.5 | Rules engine fail-closed (raises `RulesFileMissing` instead of silently returning empty rules → all gates passed). `framework_sync.py` now copies `.rsi/rules.yaml`, `.rsi/architecture.yaml`, `.rsi/DELEGATION_GUIDE.md` on `--pull` without touching project-specific `.rsi/tasks/` or `.rsi/overrides/`. |

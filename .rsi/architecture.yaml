@@ -247,3 +247,54 @@ workers:
     max_retries: 2
     max_concurrency: 5
     env_key: "MINIMAX_API_KEY"
+
+  # DeepSeek V4 workers — all share DEEPSEEK_API_KEY.
+  # Concurrency semaphore is keyed on env_key, so the pool is shared across
+  # all three variants. Set max_concurrency conservatively; thinking mode is
+  # significantly slower than instant mode.
+  #
+  # Routing guide:
+  #   deepseek-flash        → bulk refactors, doc gen, multi-file, latency-sensitive
+  #   deepseek-pro          → precision edits, quality-sensitive, targeted logic
+  #   deepseek-pro-thinking → complex bugs, architectural reasoning, API-sensitive code
+  deepseek-flash:
+    provider: "deepseek"
+    base_url: "https://api.deepseek.com"
+    model: "deepseek-v4-flash"
+    env_key: "DEEPSEEK_API_KEY"
+    max_tokens: 8192
+    temperature: 0.3
+    max_output_lines: 1000
+    client_timeout_seconds: 300
+    max_retries: 2
+    max_concurrency: 15
+    capability: "text"
+
+  deepseek-pro:
+    provider: "deepseek"
+    base_url: "https://api.deepseek.com"
+    model: "deepseek-v4-pro"
+    env_key: "DEEPSEEK_API_KEY"
+    max_tokens: 8192
+    temperature: 0.3
+    max_output_lines: 1000
+    client_timeout_seconds: 600
+    max_retries: 2
+    max_concurrency: 5
+    capability: "text"
+
+  deepseek-pro-thinking:
+    provider: "deepseek"
+    base_url: "https://api.deepseek.com"
+    model: "deepseek-v4-pro"
+    env_key: "DEEPSEEK_API_KEY"
+    max_tokens: 32768
+    # DeepSeek thinking mode rejects temperature and top_p — omit_temperature
+    # instructs WorkerProfile to exclude both from the chat.completions call.
+    omit_temperature: true
+    max_output_lines: 2000
+    client_timeout_seconds: 900
+    max_retries: 2
+    max_concurrency: 2
+    extra_body: {"thinking": {"type": "enabled", "reasoning_effort": "max"}}
+    capability: "text"
