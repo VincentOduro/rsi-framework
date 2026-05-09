@@ -1,4 +1,4 @@
-"""Tests for F5 (per-worker temperature) and F9 (per-worker max_output_lines).
+"""Tests for F5 (per-worker temperature) and F9 (per-worker max_output_lines.
 
 Worker-specific knobs previously hardcoded in delegate.py must now be read from
 architecture.yaml workers.<name> entries, with documented defaults preserving
@@ -197,3 +197,138 @@ def test_error_message_names_worker_and_threshold(tmp_path, monkeypatch):
         assert hits, f"Warning should name worker and threshold; got: {issues}"
     finally:
         target.unlink()
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek worker configs
+# ---------------------------------------------------------------------------
+
+
+def test_deepseek_flash_profile_fields(tmp_path):
+    _write_arch(
+        tmp_path,
+        """
+        workers:
+          deepseek-flash:
+            provider: deepseek
+            base_url: https://api.deepseek.com
+            model: deepseek-v4-flash
+            env_key: DEEPSEEK_API_KEY
+            temperature: 0.3
+            max_concurrency: 15
+        """,
+    )
+    from scripts.delegate import _load_worker_profile
+
+    profile = _load_worker_profile("deepseek-flash")
+    assert profile.provider == "deepseek"
+    assert profile.model == "deepseek-v4-flash"
+    assert profile.temperature == 0.3
+    assert profile.omit_temperature == False
+    assert profile.max_concurrency == 15
+
+
+def test_deepseek_pro_thinking_omit_temperature(tmp_path):
+    _write_arch(
+        tmp_path,
+        """
+        workers:
+          deepseek-pro-thinking:
+            provider: deepseek
+            base_url: https://api.deepseek.com
+            model: deepseek-reasoner
+            env_key: DEEPSEEK_API_KEY
+            omit_temperature: true
+            max_tokens: 32768
+            extra_body:
+              thinking:
+                type: enabled
+                reasoning_effort: max
+        """,
+    )
+    from scripts.delegate import _load_worker_profile
+
+    profile = _load_worker_profile("deepseek-pro-thinking")
+    assert profile.omit_temperature == True
+    assert profile.max_tokens == 32768
+    assert profile.extra_body == {"thinking": {"type": "enabled", "reasoning_effort": "max"}}
+
+
+def test_deepseek_workers_discovered_when_key_set(tmp_path, monkeypatch):
+    _write_arch(
+        tmp_path,
+        """
+        workers:
+          deepseek-flash:
+            provider: deepseek
+            base_url: https://api.deepseek.com
+            model: deepseek-v4-flash
+            env_key: DEEPSEEK_API_KEY
+          deepseek-pro:
+            provider: deepseek
+            base_url: https://api.deepseek.com
+            model: deepseek-chat
+            env_key: DEEPSEEK_API_KEY
+          deepseek-pro-thinking:
+            provider: deepseek
+            base_url: https://api.deepseek.com
+            model: deepseek-reasoner
+            env_key: DEEPSEEK_API_KEY
+        """,
+    )
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    from scripts.delegate import _get_available_workers
+
+    workers = _get_available_workers()
+    assert "deepseek-flash" in workers
+    assert "deepseek-pro" in workers
+    assert "deepseek-pro-thinking" in workers
+
+
+def test_deepseek_workers_absent_when_key_unset(tmp_path, monkeypatch):
+    _write_arch(
+        tmp_path,
+        """
+        workers:
+          deepseek-flash:
+            provider: deepseek
+            base_url: https://api.deepseek.com
+            model: deepseek-v4-flash
+            env_key: DEEPSEEK_API_KEY
+          deepseek-pro:
+            provider: deepseek
+            base_url: https://api.deepseek.com
+            model: deepseek-chat
+            env_key: DEEPSEEK_API_KEY
+          deepseek-pro-thinking:
+            provider: deepseek
+            base_url: https://api.deepseek.com
+            model: deepseek-reasoner
+            env_key: DEEPSEEK_API_KEY
+        """,
+    )
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    from scripts.delegate import _get_available_workers
+
+    workers = _get_available_workers()
+    assert "deepseek-flash" not in workers
+    assert "deepseek-pro" not in workers
+    assert "deepseek-pro-thinking" not in workers
+
+
+def test_omit_temperature_false_when_field_absent(tmp_path):
+    _write_arch(
+        tmp_path,
+        """
+        workers:
+          defaultworker:
+            provider: minimax
+            base_url: https://api.minimaxi.chat/v1
+            model: MiniMax-M2.7
+            env_key: MINIMAX_API_KEY
+        """,
+    )
+    from scripts.delegate import _load_worker_profile
+
+    profile = _load_worker_profile("defaultworker")
+    assert profile.omit_temperature == False
